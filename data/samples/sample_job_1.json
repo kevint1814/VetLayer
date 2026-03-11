@@ -1,0 +1,23 @@
+{
+  "title": "Senior Backend Engineer",
+  "company": "TechCorp",
+  "department": "Platform Engineering",
+  "description": "We're looking for a Senior Backend Engineer to join our Platform team. You'll design and build core services that power our product, working with distributed systems at scale. The ideal candidate has deep experience with Python, strong database skills, and has worked with event-driven architectures.",
+  "required_skills": [
+    {"skill": "Python", "min_depth": 4, "weight": 1.0},
+    {"skill": "PostgreSQL", "min_depth": 3, "weight": 0.9},
+    {"skill": "Docker", "min_depth": 3, "weight": 0.8},
+    {"skill": "Kubernetes", "min_depth": 2, "weight": 0.7},
+    {"skill": "AWS", "min_depth": 3, "weight": 0.8},
+    {"skill": "FastAPI", "min_depth": 3, "weight": 0.6}
+  ],
+  "preferred_skills": [
+    {"skill": "Kafka", "min_depth": 2, "weight": 0.5},
+    {"skill": "Redis", "min_depth": 2, "weight": 0.5},
+    {"skill": "Go", "min_depth": 1, "weight": 0.3}
+  ],
+  "experience_range": {"min_years": 4, "max_years": 10},
+  "education_requirements": {"min_level": "Bachelor's"},
+  "location": "San Francisco, CA",
+  "remote_policy": "hybrid"
+}

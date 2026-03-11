@@ -1,0 +1,49 @@
+SARAH CHEN
+Senior Software Engineer
+San Francisco, CA | sarah.chen@email.com | (415) 555-0142 | github.com/sarahchen
+
+PROFESSIONAL SUMMARY
+Experienced full-stack engineer with 6+ years building scalable web applications and data-intensive systems. Passionate about clean architecture, developer experience, and mentoring junior engineers. Led migration of monolithic application to microservices serving 2M+ daily users.
+
+EXPERIENCE
+
+Senior Software Engineer | Stripe | Jan 2022 – Present
+- Led architecture and implementation of a new payment reconciliation service using Python, FastAPI, and PostgreSQL, reducing reconciliation errors by 73%
+- Designed event-driven microservices architecture using Apache Kafka, processing 500K+ events/hour
+- Mentored team of 4 junior engineers through code reviews, pair programming, and weekly knowledge-sharing sessions
+- Implemented comprehensive CI/CD pipeline using GitHub Actions, achieving 95% test coverage
+- Optimized database queries resulting in 40% reduction in API response times
+- Technologies: Python, FastAPI, PostgreSQL, Kafka, Redis, Docker, Kubernetes, AWS (ECS, RDS, S3)
+
+Software Engineer | Dropbox | Jun 2019 – Dec 2021
+- Built real-time file sync notification system using WebSockets and React, serving 100K+ concurrent users
+- Developed internal analytics dashboard with React, TypeScript, and D3.js for monitoring system health
+- Contributed to migration from Python 2 to Python 3, updating 50K+ lines of code
+- Implemented rate limiting and caching layer using Redis, reducing API costs by 35%
+- Technologies: Python, React, TypeScript, WebSockets, Redis, MySQL, Docker, GCP
+
+Junior Software Engineer | Startup XYZ | Aug 2018 – May 2019
+- Built REST APIs using Django and Django REST Framework for e-commerce platform
+- Developed responsive frontend components using React and Material UI
+- Wrote automated tests achieving 80% code coverage using pytest and Jest
+- Technologies: Python, Django, React, JavaScript, PostgreSQL, AWS
+
+EDUCATION
+
+Master of Science in Computer Science | Stanford University | 2018
+- Focus: Distributed Systems and Machine Learning
+- GPA: 3.8/4.0
+
+Bachelor of Science in Computer Science | UC Berkeley | 2016
+- GPA: 3.6/4.0
+
+SKILLS
+Python, JavaScript, TypeScript, Go, SQL, React, FastAPI, Django, Node.js, PostgreSQL, MySQL, Redis, MongoDB, Docker, Kubernetes, AWS, GCP, Kafka, Git, CI/CD, GraphQL, REST APIs, Microservices, Agile/Scrum
+
+CERTIFICATIONS
+- AWS Certified Solutions Architect – Associate (2023)
+- Kubernetes Application Developer (CKAD) (2022)
+
+PROJECTS
+- OpenTracer: Open-source distributed tracing library for Python microservices. 800+ GitHub stars. Built with Python, OpenTelemetry, and gRPC.
+- DataFlow: Personal project for real-time data pipeline visualization. Built with React, D3.js, and WebSockets.

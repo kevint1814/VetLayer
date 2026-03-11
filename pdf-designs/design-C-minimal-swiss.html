@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Design C — Minimal Swiss</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #e4e4e4;
+    display: flex;
+    justify-content: center;
+    padding: 40px 20px;
+    font-family: 'IBM Plex Sans', sans-serif;
+  }
+
+  .page {
+    width: 816px;
+    min-height: 1056px;
+    background: #ffffff;
+    box-shadow: 0 4px 40px rgba(0,0,0,0.1);
+    padding: 56px;
+    position: relative;
+  }
+
+  /* ── Top Bar ── */
+  .top-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 48px;
+  }
+  .top-left .brand {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: #e63946;
+  }
+  .top-left .doc-type {
+    font-size: 10px;
+    color: #aaa;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-top: 4px;
+  }
+  .top-right {
+    text-align: right;
+    font-size: 10px;
+    color: #999;
+    line-height: 1.6;
+  }
+  .top-right .ref {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    color: #bbb;
+  }
+
+  /* ── Name Block ── */
+  .name-block {
+    margin-bottom: 40px;
+  }
+  .name-block h1 {
+    font-size: 42px;
+    font-weight: 700;
+    color: #1d1d1f;
+    letter-spacing: -1px;
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+  .name-block .role {
+    font-size: 15px;
+    font-weight: 400;
+    color: #666;
+  }
+  .name-block .divider {
+    width: 48px;
+    height: 3px;
+    background: #e63946;
+    margin-top: 16px;
+  }
+
+  /* ── Metrics Strip ── */
+  .metrics-strip {
+    display: flex;
+    gap: 0;
+    margin-bottom: 40px;
+    border-top: 1px solid #e8e8e8;
+    border-bottom: 1px solid #e8e8e8;
+  }
+  .metric-item {
+    flex: 1;
+    padding: 16px 0;
+    text-align: center;
+    border-right: 1px solid #e8e8e8;
+  }
+  .metric-item:last-child { border-right: none; }
+  .metric-label {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #aaa;
+    margin-bottom: 4px;
+  }
+  .metric-val {
+    font-size: 18px;
+    font-weight: 700;
+    color: #1d1d1f;
+  }
+
+  /* ── Grid Layout ── */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    margin-bottom: 36px;
+  }
+  .grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 36px;
+  }
+
+  /* ── Section Label ── */
+  .label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #e63946;
+    margin-bottom: 14px;
+  }
+
+  /* ── Text ── */
+  .body-text {
+    font-size: 13px;
+    line-height: 1.75;
+    color: #444;
+  }
+
+  /* ── Bullet List ── */
+  .bullet-list {
+    list-style: none;
+  }
+  .bullet-list li {
+    font-size: 13px;
+    line-height: 1.65;
+    color: #444;
+    padding-left: 16px;
+    position: relative;
+    margin-bottom: 10px;
+  }
+  .bullet-list li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 8px;
+    width: 6px;
+    height: 1px;
+    background: #e63946;
+  }
+
+  /* ── Skills ── */
+  .skill-section { margin-bottom: 14px; }
+  .skill-cat-name {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    font-weight: 500;
+    color: #999;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+  }
+  .skill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .skill-tag {
+    font-size: 11px;
+    font-weight: 500;
+    color: #1d1d1f;
+    padding: 4px 10px;
+    border: 1px solid #ddd;
+    border-radius: 2px;
+  }
+
+  /* ── Timeline ── */
+  .timeline-entry {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 20px;
+    padding: 14px 0;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .timeline-entry:last-child { border-bottom: none; }
+  .tl-date {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: #999;
+  }
+  .tl-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1d1d1f;
+  }
+  .tl-company {
+    font-size: 12px;
+    color: #888;
+    margin-top: 1px;
+  }
+
+  /* ── Considerations ── */
+  .note-block {
+    background: #fff8f0;
+    border-left: 3px solid #f4a261;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: #7a6230;
+  }
+
+  /* ── Numbered List ── */
+  .num-list-item {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 12px;
+    align-items: flex-start;
+  }
+  .num-circle {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1.5px solid #e63946;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    color: #e63946;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .num-text {
+    font-size: 12px;
+    line-height: 1.6;
+    color: #555;
+  }
+
+  /* ── Role Chips ── */
+  .role-chip {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 500;
+    color: #1d1d1f;
+    padding: 7px 14px;
+    background: #f5f5f5;
+    border-radius: 2px;
+    margin: 0 6px 6px 0;
+  }
+
+  /* ── Footer ── */
+  .page-footer {
+    position: absolute;
+    bottom: 40px;
+    left: 56px;
+    right: 56px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 9px;
+    color: #ccc;
+    letter-spacing: 0.5px;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <!-- Top Bar -->
+  <div class="top-bar">
+    <div class="top-left">
+      <div class="brand">VetLayer</div>
+      <div class="doc-type">Intelligence Brief</div>
+    </div>
+    <div class="top-right">
+      March 11, 2026<br>
+      <span class="ref">VL-2026-04821</span>
+    </div>
+  </div>
+
+  <!-- Name -->
+  <div class="name-block">
+    <h1>Marcus Chen</h1>
+    <div class="role">Senior Full-Stack Engineer &nbsp;·&nbsp; San Francisco, CA</div>
+    <div class="divider"></div>
+  </div>
+
+  <!-- Metrics -->
+  <div class="metrics-strip">
+    <div class="metric-item">
+      <div class="metric-label">Experience</div>
+      <div class="metric-val">8 yrs</div>
+    </div>
+    <div class="metric-item">
+      <div class="metric-label">Skills</div>
+      <div class="metric-val">24</div>
+    </div>
+    <div class="metric-item">
+      <div class="metric-label">Education</div>
+      <div class="metric-val">M.S.</div>
+    </div>
+    <div class="metric-item">
+      <div class="metric-label">Seniority</div>
+      <div class="metric-val">Senior</div>
+    </div>
+    <div class="metric-item">
+      <div class="metric-label">Location</div>
+      <div class="metric-val">SF, CA</div>
+    </div>
+  </div>
+
+  <!-- Executive Summary + Narrative -->
+  <div class="grid-2">
+    <div>
+      <div class="label">Executive Summary</div>
+      <p class="body-text">Marcus Chen is a seasoned full-stack engineer with 8 years of progressive experience across high-growth startups and enterprise environments. His trajectory shows a deliberate shift from frontend-heavy roles into systems architecture, with notable impact at Series B–D companies.</p>
+    </div>
+    <div>
+      <div class="label">Career Narrative</div>
+      <p class="body-text">Marcus's career tells the story of a builder who thrives in high-growth environments. Starting at a YC startup, he progressively took on full-stack and infrastructure responsibilities. His move to Stripe signaled a pivot toward systems thinking.</p>
+    </div>
+  </div>
+
+  <!-- Key Strengths -->
+  <div style="margin-bottom: 36px;">
+    <div class="label">Key Strengths</div>
+    <ul class="bullet-list">
+      <li>Deep React ecosystem expertise with demonstrated ability to architect complex frontend systems at scale — led migration of 200K LOC codebase to Next.js.</li>
+      <li>Proven cross-functional collaborator who bridges engineering and product — launched 3 customer-facing features driving 40% ARR growth.</li>
+      <li>Strong mentorship signals — grew team from 2 to 6 engineers while maintaining high velocity and low attrition.</li>
+    </ul>
+  </div>
+
+  <!-- Skills + Timeline side by side -->
+  <div class="grid-2">
+    <div>
+      <div class="label">Skills Profile</div>
+      <div class="skill-section">
+        <div class="skill-cat-name">Languages</div>
+        <div class="skill-row">
+          <span class="skill-tag">TypeScript</span>
+          <span class="skill-tag">Python</span>
+          <span class="skill-tag">Go</span>
+          <span class="skill-tag">SQL</span>
+        </div>
+      </div>
+      <div class="skill-section">
+        <div class="skill-cat-name">Frameworks</div>
+        <div class="skill-row">
+          <span class="skill-tag">React</span>
+          <span class="skill-tag">Next.js</span>
+          <span class="skill-tag">Node.js</span>
+          <span class="skill-tag">FastAPI</span>
+        </div>
+      </div>
+      <div class="skill-section">
+        <div class="skill-cat-name">Cloud / DevOps</div>
+        <div class="skill-row">
+          <span class="skill-tag">AWS</span>
+          <span class="skill-tag">Docker</span>
+          <span class="skill-tag">K8s</span>
+          <span class="skill-tag">Terraform</span>
+        </div>
+      </div>
+      <div class="skill-section">
+        <div class="skill-cat-name">Databases</div>
+        <div class="skill-row">
+          <span class="skill-tag">PostgreSQL</span>
+          <span class="skill-tag">Redis</span>
+          <span class="skill-tag">MongoDB</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="label">Career Timeline</div>
+      <div class="timeline-entry">
+        <div class="tl-date">2023 — Present</div>
+        <div>
+          <div class="tl-title">Engineering Lead</div>
+          <div class="tl-company">Finova (Series C)</div>
+        </div>
+      </div>
+      <div class="timeline-entry">
+        <div class="tl-date">2020 — 2022</div>
+        <div>
+          <div class="tl-title">Senior Software Engineer</div>
+          <div class="tl-company">Stripe</div>
+        </div>
+      </div>
+      <div class="timeline-entry">
+        <div class="tl-date">2018 — 2020</div>
+        <div>
+          <div class="tl-title">Full-Stack Developer</div>
+          <div class="tl-company">Launchpad (YC S18)</div>
+        </div>
+      </div>
+      <div class="timeline-entry">
+        <div class="tl-date">2016 — 2018</div>
+        <div>
+          <div class="tl-title">Frontend Developer</div>
+          <div class="tl-company">TechVentures Inc.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ideal Roles + Considerations + Talking Points -->
+  <div class="grid-3">
+    <div>
+      <div class="label">Ideal Roles</div>
+      <span class="role-chip">Eng Lead — Growth Startup</span>
+      <span class="role-chip">Staff Engineer, Frontend</span>
+      <span class="role-chip">Tech Lead — Fintech</span>
+    </div>
+    <div>
+      <div class="label">Considerations</div>
+      <div class="note-block">Short tenure at Launchpad (20 mo) — explore if voluntary.</div>
+      <div class="note-block">Backend systems design at scale is still developing.</div>
+    </div>
+    <div>
+      <div class="label">Culture Signals</div>
+      <p class="body-text" style="font-size:12px;">Startup-native builder with open-source contributions. Thrives in fast-paced, product-led environments. Mentorship-oriented leadership style.</p>
+    </div>
+  </div>
+
+  <!-- Talking Points -->
+  <div style="margin-bottom: 40px;">
+    <div class="label">Recruiter Talking Points</div>
+    <div class="num-list-item">
+      <div class="num-circle">1</div>
+      <div class="num-text">Ask about the Next.js migration at Finova — what drove the decision and how did he manage the transition with a small team?</div>
+    </div>
+    <div class="num-list-item">
+      <div class="num-circle">2</div>
+      <div class="num-text">Explore his experience scaling the team from 2 to 6 — what was his hiring philosophy?</div>
+    </div>
+    <div class="num-list-item">
+      <div class="num-circle">3</div>
+      <div class="num-text">Discuss his interest in infrastructure work — is this a deliberate career shift?</div>
+    </div>
+    <div class="num-list-item">
+      <div class="num-circle">4</div>
+      <div class="num-text">Gauge his appetite for IC vs. management track — could excel in either.</div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="page-footer">
+    <span>CONFIDENTIAL — FOR INTERNAL RECRUITER USE ONLY</span>
+    <span>VETLAYER INTELLIGENCE BRIEF · PAGE 1</span>
+  </div>
+</div>
+</body>
+</html>

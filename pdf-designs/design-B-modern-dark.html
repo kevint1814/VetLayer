@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Design B — Modern Dark Sidebar</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #e8e8e8;
+    display: flex;
+    justify-content: center;
+    padding: 40px 20px;
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  .page {
+    width: 816px;
+    min-height: 1056px;
+    background: #ffffff;
+    box-shadow: 0 4px 40px rgba(0,0,0,0.12);
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    overflow: hidden;
+  }
+
+  /* ── Left Sidebar ── */
+  .sidebar {
+    background: #111827;
+    color: #e5e7eb;
+    padding: 40px 24px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .brand {
+    font-size: 16px;
+    font-weight: 700;
+    color: #818cf8;
+    letter-spacing: -0.5px;
+    margin-bottom: 32px;
+  }
+
+  .candidate-name {
+    font-size: 22px;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.2;
+    margin-bottom: 4px;
+  }
+  .candidate-role {
+    font-size: 12px;
+    color: #9ca3af;
+    margin-bottom: 28px;
+  }
+
+  .side-section {
+    margin-bottom: 28px;
+  }
+  .side-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #6b7280;
+    margin-bottom: 12px;
+  }
+
+  /* Metric Cards */
+  .metric {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .metric-name {
+    font-size: 12px;
+    color: #9ca3af;
+  }
+  .metric-value {
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+  }
+
+  /* Skills */
+  .side-skill-group {
+    margin-bottom: 14px;
+  }
+  .side-skill-cat {
+    font-size: 10px;
+    font-weight: 600;
+    color: #818cf8;
+    margin-bottom: 6px;
+  }
+  .side-skill-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .side-skill {
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.07);
+    color: #d1d5db;
+  }
+
+  /* Ideal Roles */
+  .ideal-role {
+    font-size: 11px;
+    color: #d1d5db;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    line-height: 1.5;
+  }
+  .ideal-role:last-child { border-bottom: none; }
+
+  /* Contact */
+  .contact-item {
+    font-size: 11px;
+    color: #9ca3af;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .contact-icon {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    background: rgba(129,140,248,0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8px;
+    color: #818cf8;
+    flex-shrink: 0;
+  }
+
+  .sidebar-footer {
+    margin-top: auto;
+    padding-top: 20px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+  .sidebar-footer .date {
+    font-size: 10px;
+    color: #6b7280;
+  }
+  .sidebar-footer .ref {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: #4b5563;
+    margin-top: 4px;
+  }
+
+  /* ── Main Content ── */
+  .main {
+    padding: 40px 40px 40px 36px;
+  }
+
+  .doc-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #818cf8;
+    margin-bottom: 24px;
+  }
+
+  /* Executive Summary */
+  .exec-block {
+    background: linear-gradient(135deg, #f8f7ff 0%, #f0f0ff 100%);
+    border-radius: 10px;
+    padding: 24px;
+    margin-bottom: 32px;
+  }
+  .exec-block p {
+    font-size: 14px;
+    line-height: 1.75;
+    color: #374151;
+  }
+
+  /* Section */
+  .section {
+    margin-bottom: 28px;
+  }
+  .section-head {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #111827;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-head::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #e5e7eb;
+  }
+
+  /* Narrative */
+  .narrative {
+    font-size: 13px;
+    line-height: 1.75;
+    color: #4b5563;
+  }
+
+  /* Strengths */
+  .strength-card {
+    background: #f9fafb;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 8px;
+    border-left: 3px solid #818cf8;
+  }
+  .strength-card p {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #374151;
+  }
+
+  /* Career Timeline */
+  .career-entry {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 16px;
+    margin-bottom: 18px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid #f3f4f6;
+  }
+  .career-entry:last-child { border-bottom: none; padding-bottom: 0; }
+  .career-dates {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: #9ca3af;
+    padding-top: 2px;
+  }
+  .career-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #111827;
+  }
+  .career-company {
+    font-size: 12px;
+    color: #6b7280;
+    margin-top: 2px;
+  }
+  .career-desc {
+    font-size: 12px;
+    color: #9ca3af;
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+
+  /* Considerations */
+  .consideration-item {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+    align-items: flex-start;
+  }
+  .consideration-icon {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    background: #fef3c7;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+    font-size: 10px;
+  }
+  .consideration-text {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #78716c;
+  }
+
+  /* Talking Points */
+  .talk-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .talk-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .talk-card-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: #818cf8;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .talk-card-text {
+    font-size: 12px;
+    line-height: 1.6;
+    color: #4b5563;
+  }
+
+  /* Footer */
+  .main-footer {
+    margin-top: 36px;
+    padding-top: 12px;
+    border-top: 1px solid #e5e7eb;
+    font-size: 9px;
+    color: #d1d5db;
+    display: flex;
+    justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="brand">VetLayer</div>
+
+    <div class="candidate-name">Marcus Chen</div>
+    <div class="candidate-role">Senior Full-Stack Engineer · SF, CA</div>
+
+    <div class="side-section">
+      <div class="side-label">Key Metrics</div>
+      <div class="metric">
+        <span class="metric-name">Experience</span>
+        <span class="metric-value">8 yrs</span>
+      </div>
+      <div class="metric">
+        <span class="metric-name">Skills</span>
+        <span class="metric-value">24</span>
+      </div>
+      <div class="metric">
+        <span class="metric-name">Education</span>
+        <span class="metric-value">M.S.</span>
+      </div>
+      <div class="metric">
+        <span class="metric-name">Seniority</span>
+        <span class="metric-value">Senior</span>
+      </div>
+    </div>
+
+    <div class="side-section">
+      <div class="side-label">Skills</div>
+      <div class="side-skill-group">
+        <div class="side-skill-cat">Languages</div>
+        <div class="side-skill-list">
+          <span class="side-skill">TypeScript</span>
+          <span class="side-skill">Python</span>
+          <span class="side-skill">Go</span>
+          <span class="side-skill">SQL</span>
+        </div>
+      </div>
+      <div class="side-skill-group">
+        <div class="side-skill-cat">Frameworks</div>
+        <div class="side-skill-list">
+          <span class="side-skill">React</span>
+          <span class="side-skill">Next.js</span>
+          <span class="side-skill">Node.js</span>
+          <span class="side-skill">FastAPI</span>
+        </div>
+      </div>
+      <div class="side-skill-group">
+        <div class="side-skill-cat">Cloud</div>
+        <div class="side-skill-list">
+          <span class="side-skill">AWS</span>
+          <span class="side-skill">Docker</span>
+          <span class="side-skill">K8s</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-section">
+      <div class="side-label">Ideal Roles</div>
+      <div class="ideal-role">Engineering Lead at growth-stage startup</div>
+      <div class="ideal-role">Staff Engineer, Frontend Platform</div>
+      <div class="ideal-role">Tech Lead at product-led fintech</div>
+    </div>
+
+    <div class="side-section">
+      <div class="side-label">Contact</div>
+      <div class="contact-item"><div class="contact-icon">@</div> marcus.chen@email.com</div>
+      <div class="contact-item"><div class="contact-icon">in</div> linkedin.com/in/marcuschen</div>
+      <div class="contact-item"><div class="contact-icon">gh</div> github.com/mchen</div>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="date">Generated March 11, 2026</div>
+      <div class="ref">VL-2026-04821</div>
+    </div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div class="main">
+    <div class="doc-title">Candidate Intelligence Brief</div>
+
+    <div class="exec-block">
+      <p>Marcus Chen is a seasoned full-stack engineer with 8 years of progressive experience across high-growth startups and enterprise environments. His trajectory shows a deliberate shift from frontend-heavy roles into systems architecture, with notable impact at Series B–D companies. He combines strong React and Node.js depth with emerging cloud infrastructure expertise.</p>
+    </div>
+
+    <div class="section">
+      <div class="section-head">Career Narrative</div>
+      <p class="narrative">Marcus's career tells the story of a builder who thrives in high-growth environments. Starting as a frontend developer at a YC startup, he progressively took on full-stack and infrastructure responsibilities. His move to Stripe's platform team signaled a pivot toward systems thinking, and his current role leading a 6-person team at a Series C fintech shows natural leadership trajectory.</p>
+    </div>
+
+    <div class="section">
+      <div class="section-head">Key Strengths</div>
+      <div class="strength-card">
+        <p>Deep React ecosystem expertise with demonstrated ability to architect complex frontend systems at scale — led migration of 200K LOC codebase to Next.js.</p>
+      </div>
+      <div class="strength-card">
+        <p>Proven cross-functional collaborator who bridges engineering and product — launched 3 customer-facing features driving 40% ARR growth.</p>
+      </div>
+      <div class="strength-card">
+        <p>Strong mentorship signals — grew team from 2 to 6 engineers while maintaining high velocity and low attrition.</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head">Career Timeline</div>
+      <div class="career-entry">
+        <div class="career-dates">2023 — Now</div>
+        <div>
+          <div class="career-title">Engineering Lead</div>
+          <div class="career-company">Finova (Series C Fintech)</div>
+        </div>
+      </div>
+      <div class="career-entry">
+        <div class="career-dates">2020 — 2022</div>
+        <div>
+          <div class="career-title">Senior Software Engineer</div>
+          <div class="career-company">Stripe — Platform Team</div>
+        </div>
+      </div>
+      <div class="career-entry">
+        <div class="career-dates">2018 — 2020</div>
+        <div>
+          <div class="career-title">Full-Stack Developer</div>
+          <div class="career-company">Launchpad (YC S18)</div>
+        </div>
+      </div>
+      <div class="career-entry">
+        <div class="career-dates">2016 — 2018</div>
+        <div>
+          <div class="career-title">Frontend Developer</div>
+          <div class="career-company">TechVentures Inc.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head">Considerations</div>
+      <div class="consideration-item">
+        <div class="consideration-icon">!</div>
+        <div class="consideration-text">Relatively short tenure at Launchpad (20 months) — worth exploring whether departure was voluntary or startup-driven.</div>
+      </div>
+      <div class="consideration-item">
+        <div class="consideration-icon">!</div>
+        <div class="consideration-text">Limited backend systems design experience at scale — Stripe work was primarily SDK/API surface, not core infrastructure.</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head">Recruiter Talking Points</div>
+      <div class="talk-grid">
+        <div class="talk-card">
+          <div class="talk-card-num">01</div>
+          <div class="talk-card-text">Ask about the Next.js migration at Finova — what drove the decision?</div>
+        </div>
+        <div class="talk-card">
+          <div class="talk-card-num">02</div>
+          <div class="talk-card-text">Explore his team scaling experience — hiring philosophy and culture.</div>
+        </div>
+        <div class="talk-card">
+          <div class="talk-card-num">03</div>
+          <div class="talk-card-text">Discuss interest in infrastructure — deliberate shift or opportunity-driven?</div>
+        </div>
+        <div class="talk-card">
+          <div class="talk-card-num">04</div>
+          <div class="talk-card-text">Gauge appetite for IC vs. management — could excel in either track.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="main-footer">
+      <span>Confidential — Internal Use Only</span>
+      <span>VetLayer Intelligence Brief · Page 1</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

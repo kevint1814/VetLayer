@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Design A — Executive Serif</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #f0ede8;
+    display: flex;
+    justify-content: center;
+    padding: 40px 20px;
+    font-family: 'Inter', sans-serif;
+  }
+
+  .page {
+    width: 816px;
+    min-height: 1056px;
+    background: #ffffff;
+    box-shadow: 0 4px 40px rgba(0,0,0,0.12);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* ── Top Header Band ── */
+  .header {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    padding: 48px 56px 44px;
+    position: relative;
+  }
+  .header::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 56px;
+    right: 56px;
+    height: 3px;
+    background: linear-gradient(90deg, #c9a84c, #e8d48b, #c9a84c);
+  }
+  .header-badge {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #c9a84c;
+    border: 1px solid rgba(201,168,76,0.4);
+    padding: 4px 14px;
+    border-radius: 2px;
+    margin-bottom: 20px;
+  }
+  .header h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: 36px;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: -0.5px;
+    margin-bottom: 6px;
+  }
+  .header-subtitle {
+    font-size: 14px;
+    font-weight: 400;
+    color: rgba(255,255,255,0.6);
+    letter-spacing: 0.5px;
+  }
+  .header-meta {
+    position: absolute;
+    top: 48px;
+    right: 56px;
+    text-align: right;
+  }
+  .header-meta .logo-text {
+    font-family: 'Playfair Display', serif;
+    font-size: 18px;
+    font-weight: 600;
+    color: #c9a84c;
+    margin-bottom: 4px;
+  }
+  .header-meta .date {
+    font-size: 11px;
+    color: rgba(255,255,255,0.45);
+    letter-spacing: 0.5px;
+  }
+  .header-meta .ref {
+    font-size: 10px;
+    color: rgba(255,255,255,0.3);
+    margin-top: 2px;
+    font-family: 'Courier New', monospace;
+  }
+
+  /* ── Content ── */
+  .content {
+    padding: 40px 56px 56px;
+  }
+
+  /* ── Quick Facts Row ── */
+  .facts-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: #e8e4de;
+    border: 1px solid #e8e4de;
+    margin-bottom: 36px;
+  }
+  .fact {
+    background: #faf9f7;
+    padding: 18px 20px;
+    text-align: center;
+  }
+  .fact-label {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #8a8275;
+    margin-bottom: 6px;
+  }
+  .fact-value {
+    font-size: 15px;
+    font-weight: 600;
+    color: #1a1a2e;
+  }
+
+  /* ── Executive Summary ── */
+  .exec-summary {
+    margin-bottom: 36px;
+    padding: 28px 32px;
+    background: #faf9f7;
+    border-left: 3px solid #c9a84c;
+  }
+  .exec-summary p {
+    font-size: 14px;
+    line-height: 1.75;
+    color: #3a3a3a;
+  }
+
+  /* ── Section Headers ── */
+  .section-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 16px;
+    font-weight: 600;
+    color: #1a1a2e;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e8e4de;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-title .num {
+    font-family: 'Inter', sans-serif;
+    font-size: 10px;
+    font-weight: 600;
+    color: #c9a84c;
+    background: rgba(201,168,76,0.1);
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+  }
+
+  /* ── Two Column ── */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+    margin-bottom: 36px;
+  }
+
+  /* ── Strengths ── */
+  .strength-item {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .strength-bullet {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #c9a84c;
+    margin-top: 7px;
+    flex-shrink: 0;
+  }
+  .strength-text {
+    font-size: 13px;
+    line-height: 1.65;
+    color: #4a4a4a;
+  }
+
+  /* ── Skills ── */
+  .skill-category {
+    margin-bottom: 16px;
+  }
+  .skill-cat-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #8a8275;
+    margin-bottom: 8px;
+  }
+  .skill-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .skill-chip {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 5px 12px;
+    border-radius: 3px;
+    background: #f0ede8;
+    color: #3a3a3a;
+  }
+
+  /* ── Career Timeline ── */
+  .timeline-item {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 20px;
+    position: relative;
+  }
+  .timeline-dot-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 12px;
+    flex-shrink: 0;
+  }
+  .timeline-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid #c9a84c;
+    background: #fff;
+    flex-shrink: 0;
+  }
+  .timeline-dot.first {
+    background: #c9a84c;
+  }
+  .timeline-line {
+    width: 1px;
+    flex: 1;
+    background: #e0dbd3;
+    margin-top: 4px;
+  }
+  .timeline-content h4 {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1a1a2e;
+  }
+  .timeline-content .company {
+    font-size: 12px;
+    color: #6b6b6b;
+    margin-top: 2px;
+  }
+  .timeline-content .dates {
+    font-size: 11px;
+    color: #a0a0a0;
+    margin-top: 2px;
+  }
+
+  /* ── Considerations ── */
+  .consideration {
+    padding: 12px 16px;
+    background: #fef9ef;
+    border-left: 2px solid #e8c868;
+    margin-bottom: 8px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #5a5030;
+  }
+
+  /* ── Ideal Roles ── */
+  .role-tag {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 8px 16px;
+    border: 1px solid #d8d3cb;
+    border-radius: 4px;
+    margin: 0 8px 8px 0;
+    color: #1a1a2e;
+  }
+
+  /* ── Talking Points ── */
+  .talk-point {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .talk-num {
+    font-family: 'Playfair Display', serif;
+    font-size: 18px;
+    font-weight: 600;
+    color: #c9a84c;
+    line-height: 1;
+    min-width: 20px;
+  }
+  .talk-text {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #4a4a4a;
+  }
+
+  /* ── Footer ── */
+  .footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid #e8e4de;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .footer-left {
+    font-size: 10px;
+    color: #b0a89c;
+    letter-spacing: 0.5px;
+  }
+  .footer-right {
+    font-size: 10px;
+    color: #b0a89c;
+  }
+
+  .mb-36 { margin-bottom: 36px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-badge">Candidate Intelligence Brief</div>
+    <h1>Marcus Chen</h1>
+    <div class="header-subtitle">Senior Full-Stack Engineer &nbsp;·&nbsp; San Francisco, CA</div>
+    <div class="header-meta">
+      <div class="logo-text">VetLayer</div>
+      <div class="date">March 11, 2026</div>
+      <div class="ref">REF: VL-2026-04821</div>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="content">
+    <!-- Quick Facts -->
+    <div class="facts-row">
+      <div class="fact">
+        <div class="fact-label">Experience</div>
+        <div class="fact-value">8 Years</div>
+      </div>
+      <div class="fact">
+        <div class="fact-label">Skills</div>
+        <div class="fact-value">24 Identified</div>
+      </div>
+      <div class="fact">
+        <div class="fact-label">Education</div>
+        <div class="fact-value">M.S. CompSci</div>
+      </div>
+      <div class="fact">
+        <div class="fact-label">Seniority</div>
+        <div class="fact-value">Senior</div>
+      </div>
+    </div>
+
+    <!-- Executive Summary -->
+    <div class="exec-summary">
+      <p>Marcus Chen is a seasoned full-stack engineer with 8 years of progressive experience across high-growth startups and enterprise environments. His trajectory shows a deliberate shift from frontend-heavy roles into systems architecture, with notable impact at Series B–D companies. He combines strong React and Node.js depth with emerging cloud infrastructure expertise, making him a versatile technical leader who can bridge product and platform teams.</p>
+    </div>
+
+    <!-- Career Narrative + Key Strengths -->
+    <div class="two-col">
+      <div>
+        <div class="section-title"><span class="num">01</span> Career Narrative</div>
+        <p style="font-size:13px; line-height:1.7; color:#4a4a4a;">
+          Marcus's career tells the story of a builder who thrives in high-growth environments. Starting as a frontend developer at a YC startup, he progressively took on full-stack and infrastructure responsibilities. His move to Stripe's platform team signaled a pivot toward systems thinking, and his current role leading a 6-person team at a Series C fintech shows natural leadership trajectory.
+        </p>
+      </div>
+      <div>
+        <div class="section-title"><span class="num">02</span> Key Strengths</div>
+        <div class="strength-item">
+          <div class="strength-bullet"></div>
+          <div class="strength-text">Deep React ecosystem expertise with demonstrated ability to architect complex frontend systems at scale — led migration of 200K LOC codebase to Next.js.</div>
+        </div>
+        <div class="strength-item">
+          <div class="strength-bullet"></div>
+          <div class="strength-text">Proven cross-functional collaborator who bridges engineering and product — launched 3 customer-facing features that drove 40% ARR growth.</div>
+        </div>
+        <div class="strength-item">
+          <div class="strength-bullet"></div>
+          <div class="strength-text">Strong mentorship signals — grew team from 2 to 6 engineers while maintaining high velocity and low attrition.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Skills Profile -->
+    <div class="mb-36">
+      <div class="section-title"><span class="num">03</span> Skills Profile</div>
+      <p style="font-size:13px; line-height:1.65; color:#4a4a4a; margin-bottom:20px;">
+        Marcus presents as a frontend-leaning full-stack engineer with growing backend and infrastructure depth. His sweet spot is React/TypeScript systems with Node.js APIs, complemented by practical AWS and containerization experience.
+      </p>
+      <div class="skill-category">
+        <div class="skill-cat-label">Languages</div>
+        <div class="skill-chips">
+          <span class="skill-chip">TypeScript</span>
+          <span class="skill-chip">JavaScript</span>
+          <span class="skill-chip">Python</span>
+          <span class="skill-chip">Go</span>
+          <span class="skill-chip">SQL</span>
+        </div>
+      </div>
+      <div class="skill-category">
+        <div class="skill-cat-label">Frameworks</div>
+        <div class="skill-chips">
+          <span class="skill-chip">React</span>
+          <span class="skill-chip">Next.js</span>
+          <span class="skill-chip">Node.js</span>
+          <span class="skill-chip">Express</span>
+          <span class="skill-chip">FastAPI</span>
+          <span class="skill-chip">Tailwind CSS</span>
+        </div>
+      </div>
+      <div class="skill-category">
+        <div class="skill-cat-label">Cloud & DevOps</div>
+        <div class="skill-chips">
+          <span class="skill-chip">AWS</span>
+          <span class="skill-chip">Docker</span>
+          <span class="skill-chip">Kubernetes</span>
+          <span class="skill-chip">Terraform</span>
+          <span class="skill-chip">CI/CD</span>
+        </div>
+      </div>
+      <div class="skill-category">
+        <div class="skill-cat-label">Databases</div>
+        <div class="skill-chips">
+          <span class="skill-chip">PostgreSQL</span>
+          <span class="skill-chip">Redis</span>
+          <span class="skill-chip">MongoDB</span>
+          <span class="skill-chip">DynamoDB</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Career Timeline -->
+    <div class="mb-36">
+      <div class="section-title"><span class="num">04</span> Career Timeline</div>
+      <div class="timeline-item">
+        <div class="timeline-dot-col">
+          <div class="timeline-dot first"></div>
+          <div class="timeline-line"></div>
+        </div>
+        <div class="timeline-content">
+          <h4>Engineering Lead</h4>
+          <div class="company">Finova (Series C Fintech)</div>
+          <div class="dates">Jan 2023 — Present</div>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot-col">
+          <div class="timeline-dot"></div>
+          <div class="timeline-line"></div>
+        </div>
+        <div class="timeline-content">
+          <h4>Senior Software Engineer</h4>
+          <div class="company">Stripe — Platform Team</div>
+          <div class="dates">Mar 2020 — Dec 2022</div>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot-col">
+          <div class="timeline-dot"></div>
+          <div class="timeline-line"></div>
+        </div>
+        <div class="timeline-content">
+          <h4>Full-Stack Developer</h4>
+          <div class="company">Launchpad (YC S18)</div>
+          <div class="dates">Jun 2018 — Feb 2020</div>
+        </div>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-dot-col">
+          <div class="timeline-dot"></div>
+        </div>
+        <div class="timeline-content">
+          <h4>Frontend Developer</h4>
+          <div class="company">TechVentures Inc.</div>
+          <div class="dates">Aug 2016 — May 2018</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ideal Roles + Considerations -->
+    <div class="two-col mb-36">
+      <div>
+        <div class="section-title"><span class="num">05</span> Ideal Roles</div>
+        <span class="role-tag">Engineering Lead at growth-stage startup</span>
+        <span class="role-tag">Staff Engineer (Frontend Platform)</span>
+        <span class="role-tag">Tech Lead at a product-led fintech</span>
+      </div>
+      <div>
+        <div class="section-title"><span class="num">06</span> Considerations</div>
+        <div class="consideration">Relatively short tenure at Launchpad (20 months) — worth exploring whether departure was voluntary or startup-driven.</div>
+        <div class="consideration">Limited backend systems design experience at scale — Stripe work was primarily SDK/API surface, not core infrastructure.</div>
+      </div>
+    </div>
+
+    <!-- Talking Points -->
+    <div class="mb-36">
+      <div class="section-title"><span class="num">07</span> Recruiter Talking Points</div>
+      <div class="talk-point">
+        <div class="talk-num">1</div>
+        <div class="talk-text">Ask about the Next.js migration at Finova — what drove the decision and how did he manage the transition with a small team?</div>
+      </div>
+      <div class="talk-point">
+        <div class="talk-num">2</div>
+        <div class="talk-text">Explore his experience scaling the team from 2 to 6 — what was his hiring philosophy and how did he maintain culture?</div>
+      </div>
+      <div class="talk-point">
+        <div class="talk-num">3</div>
+        <div class="talk-text">Discuss his interest in infrastructure work — is this a deliberate career shift or was it opportunity-driven?</div>
+      </div>
+      <div class="talk-point">
+        <div class="talk-num">4</div>
+        <div class="talk-text">Gauge his appetite for IC vs. management track — his profile suggests he could excel in either but may have a strong preference.</div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <div class="footer-left">CONFIDENTIAL — FOR INTERNAL RECRUITER USE ONLY</div>
+      <div class="footer-right">VetLayer Intelligence Brief &nbsp;·&nbsp; Page 1 of 1</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

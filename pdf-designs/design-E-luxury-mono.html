@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Design E — Luxury Monochrome</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #d4d0c8;
+    display: flex;
+    justify-content: center;
+    padding: 40px 20px;
+    font-family: 'Outfit', sans-serif;
+  }
+
+  .page {
+    width: 816px;
+    min-height: 1056px;
+    background: #fafaf8;
+    box-shadow: 0 4px 40px rgba(0,0,0,0.1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* ── Decorative border ── */
+  .inner-frame {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    right: 20px;
+    bottom: 20px;
+    border: 1px solid #d4cfc5;
+    pointer-events: none;
+  }
+
+  /* ── Header ── */
+  .header {
+    padding: 48px 56px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    position: relative;
+    z-index: 1;
+  }
+  .brand-area .brand {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 24px;
+    font-weight: 700;
+    color: #1a1a1a;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+  }
+  .brand-area .tagline {
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: #b0a898;
+    margin-top: 2px;
+  }
+  .header-right {
+    text-align: right;
+  }
+  .header-right .date {
+    font-size: 11px;
+    color: #999;
+    font-weight: 300;
+  }
+  .header-right .ref {
+    font-size: 9px;
+    color: #c5c0b8;
+    margin-top: 4px;
+    letter-spacing: 1px;
+  }
+
+  .content {
+    padding: 36px 56px 56px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ── Separator ── */
+  .sep {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #c5c0b8, transparent);
+    margin: 24px 0;
+  }
+
+  /* ── Name Section ── */
+  .name-section {
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .name-section h1 {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 44px;
+    font-weight: 600;
+    color: #1a1a1a;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+  .name-section .role {
+    font-size: 13px;
+    font-weight: 400;
+    color: #888;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-top: 4px;
+  }
+
+  /* ── Metrics Row ── */
+  .metrics {
+    display: flex;
+    justify-content: center;
+    gap: 40px;
+    margin: 28px 0;
+  }
+  .m-item {
+    text-align: center;
+  }
+  .m-value {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 28px;
+    font-weight: 600;
+    color: #1a1a1a;
+  }
+  .m-label {
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #b0a898;
+    margin-top: 2px;
+  }
+
+  /* ── Summary Block ── */
+  .summary {
+    max-width: 620px;
+    margin: 0 auto 8px;
+    text-align: center;
+  }
+  .summary p {
+    font-size: 13px;
+    line-height: 1.85;
+    color: #555;
+    font-weight: 300;
+  }
+
+  /* ── Section ── */
+  .section-label {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: #1a1a1a;
+    text-align: center;
+    margin-bottom: 16px;
+  }
+
+  /* ── Two Column ── */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    margin-bottom: 8px;
+  }
+
+  /* ── Narrative Text ── */
+  .narrative {
+    font-size: 12.5px;
+    line-height: 1.8;
+    color: #555;
+    font-weight: 300;
+  }
+
+  /* ── Strengths ── */
+  .str-entry {
+    padding: 10px 0;
+    border-bottom: 1px solid #eae6df;
+    font-size: 12px;
+    line-height: 1.7;
+    color: #444;
+    font-weight: 300;
+  }
+  .str-entry:last-child { border-bottom: none; }
+
+  /* ── Skills ── */
+  .skill-group {
+    margin-bottom: 14px;
+  }
+  .skill-group-name {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #b0a898;
+    margin-bottom: 6px;
+  }
+  .skill-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .skill-pill {
+    font-size: 10px;
+    font-weight: 500;
+    padding: 5px 12px;
+    border: 1px solid #d4cfc5;
+    color: #444;
+    letter-spacing: 0.5px;
+  }
+
+  /* ── Timeline ── */
+  .tl-entry {
+    display: flex;
+    gap: 20px;
+    padding: 10px 0;
+    border-bottom: 1px solid #eae6df;
+  }
+  .tl-entry:last-child { border-bottom: none; }
+  .tl-dates {
+    font-size: 10px;
+    color: #aaa;
+    width: 100px;
+    flex-shrink: 0;
+    padding-top: 2px;
+    font-weight: 300;
+  }
+  .tl-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #1a1a1a;
+  }
+  .tl-co {
+    font-size: 11px;
+    color: #888;
+    font-weight: 300;
+    margin-top: 1px;
+  }
+
+  /* ── Considerations ── */
+  .consider {
+    padding: 10px 16px;
+    border-left: 2px solid #d4cfc5;
+    font-size: 12px;
+    line-height: 1.7;
+    color: #777;
+    font-weight: 300;
+    margin-bottom: 8px;
+    background: rgba(0,0,0,0.01);
+  }
+
+  /* ── Ideal Roles ── */
+  .roles-center {
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .role-pill {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 400;
+    padding: 7px 18px;
+    border: 1px solid #d4cfc5;
+    margin: 0 4px 8px;
+    color: #444;
+    letter-spacing: 0.5px;
+  }
+
+  /* ── Talking Points ── */
+  .tp {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 10px;
+    align-items: flex-start;
+  }
+  .tp-n {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 22px;
+    font-weight: 600;
+    color: #c5c0b8;
+    min-width: 24px;
+    line-height: 1;
+  }
+  .tp-t {
+    font-size: 12px;
+    line-height: 1.7;
+    color: #555;
+    font-weight: 300;
+  }
+
+  /* ── Footer ── */
+  .page-footer {
+    position: absolute;
+    bottom: 32px;
+    left: 56px;
+    right: 56px;
+    text-align: center;
+    font-size: 8px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #c5c0b8;
+    z-index: 1;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="inner-frame"></div>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="brand-area">
+      <div class="brand">VetLayer</div>
+      <div class="tagline">Intelligence Brief</div>
+    </div>
+    <div class="header-right">
+      <div class="date">March 11, 2026</div>
+      <div class="ref">REF VL-2026-04821</div>
+    </div>
+  </div>
+
+  <div class="content">
+    <!-- Name -->
+    <div class="name-section">
+      <h1>Marcus Chen</h1>
+      <div class="role">Senior Full-Stack Engineer &nbsp;·&nbsp; San Francisco</div>
+    </div>
+
+    <div class="sep"></div>
+
+    <!-- Metrics -->
+    <div class="metrics">
+      <div class="m-item"><div class="m-value">8</div><div class="m-label">Years Exp</div></div>
+      <div class="m-item"><div class="m-value">24</div><div class="m-label">Skills</div></div>
+      <div class="m-item"><div class="m-value">M.S.</div><div class="m-label">Education</div></div>
+      <div class="m-item"><div class="m-value">Senior</div><div class="m-label">Seniority</div></div>
+    </div>
+
+    <!-- Executive Summary -->
+    <div class="summary">
+      <p>Marcus Chen is a seasoned full-stack engineer with 8 years of progressive experience across high-growth startups and enterprise environments. His trajectory shows a deliberate shift from frontend-heavy roles into systems architecture, with notable impact at Series B–D companies. He combines strong React and Node.js depth with emerging cloud infrastructure expertise.</p>
+    </div>
+
+    <div class="sep"></div>
+
+    <!-- Narrative + Strengths -->
+    <div class="two-col">
+      <div>
+        <div class="section-label">Career Narrative</div>
+        <p class="narrative">Marcus's career tells the story of a builder who thrives in high-growth environments. Starting at a YC startup, he progressively took on full-stack responsibilities. His move to Stripe signaled a pivot toward systems thinking, and his current role leading a 6-person team shows natural leadership evolution.</p>
+      </div>
+      <div>
+        <div class="section-label">Key Strengths</div>
+        <div class="str-entry">Deep React expertise — led migration of 200K LOC codebase to Next.js at scale.</div>
+        <div class="str-entry">Cross-functional collaborator — 3 features driving 40% ARR growth.</div>
+        <div class="str-entry">Strong mentorship — grew team 2→6 with high velocity and low attrition.</div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <!-- Skills + Timeline -->
+    <div class="two-col">
+      <div>
+        <div class="section-label">Skills Profile</div>
+        <div class="skill-group">
+          <div class="skill-group-name">Languages</div>
+          <div class="skill-pills">
+            <span class="skill-pill">TypeScript</span>
+            <span class="skill-pill">Python</span>
+            <span class="skill-pill">Go</span>
+            <span class="skill-pill">SQL</span>
+          </div>
+        </div>
+        <div class="skill-group">
+          <div class="skill-group-name">Frameworks</div>
+          <div class="skill-pills">
+            <span class="skill-pill">React</span>
+            <span class="skill-pill">Next.js</span>
+            <span class="skill-pill">Node.js</span>
+            <span class="skill-pill">FastAPI</span>
+          </div>
+        </div>
+        <div class="skill-group">
+          <div class="skill-group-name">Cloud / DevOps</div>
+          <div class="skill-pills">
+            <span class="skill-pill">AWS</span>
+            <span class="skill-pill">Docker</span>
+            <span class="skill-pill">Kubernetes</span>
+            <span class="skill-pill">Terraform</span>
+          </div>
+        </div>
+        <div class="skill-group">
+          <div class="skill-group-name">Databases</div>
+          <div class="skill-pills">
+            <span class="skill-pill">PostgreSQL</span>
+            <span class="skill-pill">Redis</span>
+            <span class="skill-pill">MongoDB</span>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="section-label">Career Timeline</div>
+        <div class="tl-entry"><div class="tl-dates">2023 — Present</div><div><div class="tl-title">Engineering Lead</div><div class="tl-co">Finova (Series C Fintech)</div></div></div>
+        <div class="tl-entry"><div class="tl-dates">2020 — 2022</div><div><div class="tl-title">Senior Software Engineer</div><div class="tl-co">Stripe — Platform Team</div></div></div>
+        <div class="tl-entry"><div class="tl-dates">2018 — 2020</div><div><div class="tl-title">Full-Stack Developer</div><div class="tl-co">Launchpad (YC S18)</div></div></div>
+        <div class="tl-entry"><div class="tl-dates">2016 — 2018</div><div><div class="tl-title">Frontend Developer</div><div class="tl-co">TechVentures Inc.</div></div></div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <!-- Ideal Roles -->
+    <div class="roles-center">
+      <div class="section-label">Ideal Roles</div>
+      <span class="role-pill">Engineering Lead — Growth Startup</span>
+      <span class="role-pill">Staff Engineer, Frontend Platform</span>
+      <span class="role-pill">Tech Lead — Product-Led Fintech</span>
+    </div>
+
+    <div class="sep"></div>
+
+    <!-- Considerations + Culture -->
+    <div class="two-col">
+      <div>
+        <div class="section-label">Considerations</div>
+        <div class="consider">Relatively short tenure at Launchpad (20 months) — worth exploring context of departure.</div>
+        <div class="consider">Backend systems design at scale is still developing — Stripe work was primarily API surface.</div>
+      </div>
+      <div>
+        <div class="section-label">Culture Signals</div>
+        <p class="narrative">Startup-native builder with open-source contributions and a mentorship-oriented leadership style. Thrives in fast-paced, product-led environments where engineering and product collaborate closely. Prefers small, high-trust teams over large organizational structures.</p>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <!-- Talking Points -->
+    <div>
+      <div class="section-label">Recruiter Talking Points</div>
+      <div class="tp"><div class="tp-n">1</div><div class="tp-t">Ask about the Next.js migration at Finova — what drove the decision and how did he manage the transition with a small team?</div></div>
+      <div class="tp"><div class="tp-n">2</div><div class="tp-t">Explore his experience scaling the team from 2 to 6 — what was his hiring philosophy and how did he maintain culture?</div></div>
+      <div class="tp"><div class="tp-n">3</div><div class="tp-t">Discuss his interest in infrastructure work — is this a deliberate career shift or opportunity-driven?</div></div>
+      <div class="tp"><div class="tp-n">4</div><div class="tp-t">Gauge appetite for IC vs. management track — could excel in either path.</div></div>
+    </div>
+  </div>
+
+  <div class="page-footer">Confidential · For Internal Recruiter Use Only · VetLayer Intelligence Brief</div>
+</div>
+</body>
+</html>
