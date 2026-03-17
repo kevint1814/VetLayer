@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VetLayer — Batch Analysis Brief Preview</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Inter:wght@300;400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #e8e6e1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+    gap: 40px;
+    font-family: 'Inter', sans-serif;
+  }
+
+  .page {
+    width: 612px;
+    min-height: 792px;
+    background: #fafaf8;
+    position: relative;
+    padding: 56px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+  }
+
+  .page::before {
+    content: '';
+    position: absolute;
+    inset: 20px;
+    border: 0.5px solid #d4cfc5;
+    pointer-events: none;
+  }
+
+  /* Colors */
+  :root {
+    --black: #1a1a1a;
+    --dark: #333333;
+    --body: #555555;
+    --muted: #888888;
+    --light: #aaaaaa;
+    --border: #d4cfc5;
+    --faint: #c5c0b8;
+    --bg: #fafaf8;
+    --accent-bg: #f5f4f0;
+    --consider-bg: #f9f7f3;
+    --green: #3d7a4a;
+    --green-bg: #f0f6f1;
+    --red: #9a3c3c;
+    --red-bg: #faf4f4;
+    --amber: #8a6d2b;
+    --amber-bg: #faf6ee;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 32px;
+  }
+  .brand { font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 700; color: var(--black); letter-spacing: 1px; }
+  .brand-sub { font-size: 7px; color: var(--faint); letter-spacing: 3px; margin-top: 2px; }
+  .header-right { text-align: right; }
+  .header-date { font-size: 9px; color: var(--muted); }
+  .header-ref { font-size: 7px; color: var(--faint); margin-top: 2px; }
+
+  /* Title block */
+  .title-block { text-align: center; margin-bottom: 16px; }
+  .title-main { font-family: 'Playfair Display', serif; font-size: 24px; font-weight: 700; color: var(--black); letter-spacing: 2px; }
+  .title-sub { font-size: 9px; color: var(--muted); letter-spacing: 2px; margin-top: 6px; }
+
+  .sep { border: none; border-top: 0.3px solid var(--border); margin: 16px 80px; }
+
+  /* Metrics row */
+  .metrics {
+    display: flex;
+    justify-content: space-around;
+    margin: 20px 0 16px;
+  }
+  .metric { text-align: center; }
+  .metric-val { font-family: 'Playfair Display', serif; font-size: 22px; color: var(--black); }
+  .metric-val.green { color: var(--green); }
+  .metric-val.amber { color: var(--amber); }
+  .metric-label { font-size: 6px; color: var(--faint); letter-spacing: 2px; margin-top: 4px; }
+
+  /* Section labels */
+  .section-label {
+    font-size: 6.5px;
+    font-weight: 600;
+    color: var(--black);
+    letter-spacing: 3px;
+    text-align: center;
+    margin-bottom: 10px;
+  }
+  .col-section-label {
+    font-size: 6.5px;
+    font-weight: 600;
+    color: var(--black);
+    letter-spacing: 3px;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+
+  /* Body text */
+  .body-text {
+    font-size: 9.5px;
+    line-height: 1.65;
+    color: var(--body);
+    text-align: justify;
+  }
+
+  /* Two columns */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+    margin-bottom: 4px;
+  }
+
+  /* Rankings table */
+  .ranking-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .ranking-table th {
+    font-size: 7px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 1.5px;
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 0.5px solid var(--border);
+  }
+  .ranking-table th.center { text-align: center; }
+  .ranking-table td {
+    font-size: 9px;
+    color: var(--dark);
+    padding: 8px 8px;
+    border-bottom: 0.3px solid #eae6df;
+    vertical-align: top;
+  }
+  .ranking-table td.center { text-align: center; }
+  .rank-num { font-family: 'Playfair Display', serif; font-size: 14px; color: var(--faint); }
+  .candidate-name { font-weight: 600; font-size: 9.5px; color: var(--black); }
+  .candidate-role { font-size: 8px; color: var(--muted); margin-top: 2px; }
+
+  /* Score bar */
+  .score-bar-container { display: flex; align-items: center; gap: 6px; }
+  .score-bar { width: 48px; height: 4px; background: #eae6df; border-radius: 2px; overflow: hidden; }
+  .score-bar-fill { height: 100%; border-radius: 2px; }
+  .score-bar-fill.high { background: var(--green); }
+  .score-bar-fill.mid { background: var(--amber); }
+  .score-bar-fill.low { background: var(--red); }
+  .score-val { font-size: 9px; font-weight: 500; min-width: 24px; }
+  .score-val.high { color: var(--green); }
+  .score-val.mid { color: var(--amber); }
+  .score-val.low { color: var(--red); }
+
+  /* Recommendation pills */
+  .rec-pill {
+    display: inline-block;
+    font-size: 7px;
+    font-weight: 500;
+    letter-spacing: 1px;
+    padding: 3px 8px;
+    border-radius: 2px;
+  }
+  .rec-pill.strong-yes { background: var(--green-bg); color: var(--green); }
+  .rec-pill.yes { background: var(--green-bg); color: var(--green); }
+  .rec-pill.maybe { background: var(--amber-bg); color: var(--amber); }
+  .rec-pill.no { background: var(--red-bg); color: var(--red); }
+
+  /* Strengths & Gaps */
+  .strength-item, .gap-item {
+    font-size: 9px;
+    line-height: 1.5;
+    padding: 4px 0;
+    border-bottom: 0.3px solid #eae6df;
+  }
+  .strength-item { color: var(--dark); }
+  .gap-item { color: var(--muted); }
+
+  /* Score breakdown bars */
+  .breakdown-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .breakdown-label { font-size: 8px; color: var(--muted); width: 70px; text-align: right; }
+  .breakdown-bar { flex: 1; height: 6px; background: #eae6df; border-radius: 3px; overflow: hidden; }
+  .breakdown-fill { height: 100%; border-radius: 3px; background: var(--dark); }
+  .breakdown-val { font-size: 8px; color: var(--dark); width: 28px; }
+
+  /* Consideration block */
+  .consideration {
+    background: var(--consider-bg);
+    border-left: 1.5px solid var(--border);
+    padding: 8px 12px;
+    font-size: 9px;
+    line-height: 1.5;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  /* Talking points / interview questions */
+  .tp-row { display: flex; gap: 12px; margin-bottom: 6px; }
+  .tp-num { font-family: 'Playfair Display', serif; font-size: 16px; color: var(--faint); min-width: 18px; }
+  .tp-text { font-size: 9.5px; line-height: 1.55; color: var(--body); }
+  .tp-rationale { font-size: 8px; color: var(--muted); margin-top: 2px; font-style: italic; }
+
+  /* Footer */
+  .footer {
+    position: absolute;
+    bottom: 32px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 6px;
+    color: var(--faint);
+    letter-spacing: 2px;
+  }
+
+  /* Risk flags */
+  .flag { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 8px; }
+  .flag-severity {
+    font-size: 6px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    padding: 2px 6px;
+    border-radius: 2px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .flag-severity.high { background: var(--red-bg); color: var(--red); }
+  .flag-severity.medium { background: var(--amber-bg); color: var(--amber); }
+  .flag-severity.low { background: var(--accent-bg); color: var(--muted); }
+  .flag-text { font-size: 8.5px; color: var(--body); line-height: 1.5; }
+  .flag-title { font-weight: 600; color: var(--dark); }
+
+  .page-label { font-size: 10px; color: #999; text-align: center; margin-bottom: 12px; letter-spacing: 2px; }
+
+  /* Candidate page number badge */
+  .candidate-page-badge {
+    font-size: 7px;
+    color: var(--faint);
+    letter-spacing: 2px;
+    text-align: center;
+    margin-top: -4px;
+    margin-bottom: 12px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- PAGE 1: BATCH OVERVIEW                                            -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="page-label">PAGE 1 — BATCH OVERVIEW</div>
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="brand">VETLAYER</div>
+      <div class="brand-sub">BATCH ANALYSIS BRIEF</div>
+    </div>
+    <div class="header-right">
+      <div class="header-date">March 12, 2026</div>
+      <div class="header-ref">REF BA-2026-A3F8C</div>
+    </div>
+  </div>
+
+  <div class="title-block">
+    <div class="title-main">SENIOR FULL STACK DEVELOPER</div>
+    <div class="title-sub">ACME TECHNOLOGIES  |  5 CANDIDATES EVALUATED</div>
+  </div>
+
+  <hr class="sep">
+
+  <!-- Key Metrics -->
+  <div class="metrics">
+    <div class="metric">
+      <div class="metric-val">5</div>
+      <div class="metric-label">CANDIDATES</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val green">72%</div>
+      <div class="metric-label">AVG SCORE</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">2</div>
+      <div class="metric-label">STRONG YES</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val amber">1.8s</div>
+      <div class="metric-label">AVG TIME</div>
+    </div>
+  </div>
+
+  <!-- Executive Summary -->
+  <div style="padding: 0 10px; margin-bottom: 12px;">
+    <p class="body-text">
+      This batch analysis evaluated 5 candidates against the Senior Full Stack Developer position at Acme Technologies. The candidate pool shows strong technical alignment overall, with 2 candidates receiving strong recommendations and 1 flagged for further evaluation. Kevin T emerged as the top-ranked candidate with an 85% match driven by deep full-stack experience and startup background alignment. The primary skill gap across the pool is cloud infrastructure experience, with 3 of 5 candidates showing limited AWS/DevOps depth.
+    </p>
+  </div>
+
+  <hr class="sep">
+
+  <!-- Candidate Rankings -->
+  <div class="section-label">CANDIDATE RANKINGS</div>
+
+  <table class="ranking-table">
+    <thead>
+      <tr>
+        <th style="width:24px"></th>
+        <th>CANDIDATE</th>
+        <th class="center">SCORE</th>
+        <th class="center">SKILLS</th>
+        <th class="center">EXP</th>
+        <th class="center">DEPTH</th>
+        <th class="center">REC</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="rank-num">1</span></td>
+        <td>
+          <div class="candidate-name">Kevin T</div>
+          <div class="candidate-role">Full Stack Developer | 6y exp</div>
+        </td>
+        <td class="center">
+          <div class="score-bar-container" style="justify-content:center">
+            <div class="score-bar"><div class="score-bar-fill high" style="width:85%"></div></div>
+            <span class="score-val high">85</span>
+          </div>
+        </td>
+        <td class="center"><span class="score-val high">88</span></td>
+        <td class="center"><span class="score-val high">82</span></td>
+        <td class="center"><span class="score-val high">80</span></td>
+        <td class="center"><span class="rec-pill strong-yes">STRONG YES</span></td>
+      </tr>
+      <tr>
+        <td><span class="rank-num">2</span></td>
+        <td>
+          <div class="candidate-name">Akshat Prahaladh</div>
+          <div class="candidate-role">IT Support Specialist | 2y exp</div>
+        </td>
+        <td class="center">
+          <div class="score-bar-container" style="justify-content:center">
+            <div class="score-bar"><div class="score-bar-fill high" style="width:76%"></div></div>
+            <span class="score-val high">76</span>
+          </div>
+        </td>
+        <td class="center"><span class="score-val high">80</span></td>
+        <td class="center"><span class="score-val mid">65</span></td>
+        <td class="center"><span class="score-val high">72</span></td>
+        <td class="center"><span class="rec-pill strong-yes">STRONG YES</span></td>
+      </tr>
+      <tr>
+        <td><span class="rank-num">3</span></td>
+        <td>
+          <div class="candidate-name">First Last</div>
+          <div class="candidate-role">Front-End Developer | 6y exp</div>
+        </td>
+        <td class="center">
+          <div class="score-bar-container" style="justify-content:center">
+            <div class="score-bar"><div class="score-bar-fill mid" style="width:64%"></div></div>
+            <span class="score-val mid">64</span>
+          </div>
+        </td>
+        <td class="center"><span class="score-val mid">70</span></td>
+        <td class="center"><span class="score-val mid">62</span></td>
+        <td class="center"><span class="score-val mid">55</span></td>
+        <td class="center"><span class="rec-pill yes">YES</span></td>
+      </tr>
+      <tr>
+        <td><span class="rank-num">4</span></td>
+        <td>
+          <div class="candidate-name">Nabla Henna K P</div>
+          <div class="candidate-role">Graduate | &lt;1y exp</div>
+        </td>
+        <td class="center">
+          <div class="score-bar-container" style="justify-content:center">
+            <div class="score-bar"><div class="score-bar-fill mid" style="width:48%"></div></div>
+            <span class="score-val mid">48</span>
+          </div>
+        </td>
+        <td class="center"><span class="score-val mid">52</span></td>
+        <td class="center"><span class="score-val low">30</span></td>
+        <td class="center"><span class="score-val mid">40</span></td>
+        <td class="center"><span class="rec-pill maybe">MAYBE</span></td>
+      </tr>
+      <tr>
+        <td><span class="rank-num">5</span></td>
+        <td>
+          <div class="candidate-name">Muhammed Sahil</div>
+          <div class="candidate-role">Copywriting Intern | &lt;1y exp</div>
+        </td>
+        <td class="center">
+          <div class="score-bar-container" style="justify-content:center">
+            <div class="score-bar"><div class="score-bar-fill low" style="width:22%"></div></div>
+            <span class="score-val low">22</span>
+          </div>
+        </td>
+        <td class="center"><span class="score-val low">18</span></td>
+        <td class="center"><span class="score-val low">15</span></td>
+        <td class="center"><span class="score-val low">12</span></td>
+        <td class="center"><span class="rec-pill no">NO</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <hr class="sep" style="margin-top: 20px;">
+
+  <!-- Pool Strengths & Gaps -->
+  <div class="two-col">
+    <div>
+      <div class="col-section-label">POOL STRENGTHS</div>
+      <div class="strength-item">Strong JavaScript/TypeScript proficiency across 4 of 5 candidates with production React experience</div>
+      <div class="strength-item">Multiple candidates with startup and early-stage company backgrounds, matching team culture</div>
+      <div class="strength-item">2 candidates have direct mobile app development experience (React Native), a valued bonus skill</div>
+    </div>
+    <div>
+      <div class="col-section-label">COMMON GAPS</div>
+      <div class="gap-item">Cloud infrastructure (AWS/GCP) depth is limited — only 1 candidate has hands-on DevOps experience</div>
+      <div class="gap-item">No candidates show strong system design or architecture-level experience at scale</div>
+      <div class="gap-item">Testing coverage awareness appears weak — limited mentions of CI/CD and automated testing</div>
+    </div>
+  </div>
+
+  <div class="footer">CONFIDENTIAL  |  FOR INTERNAL RECRUITER USE ONLY  |  VETLAYER BATCH ANALYSIS BRIEF</div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- PAGE 2: CANDIDATE 1 — KEVIN T                                     -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="page-label">PAGE 2 — CANDIDATE ANALYSIS (1 of 5)</div>
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="brand" style="font-size:12px;">VETLAYER</div>
+    </div>
+    <div class="header-right">
+      <div class="header-date">March 12, 2026</div>
+    </div>
+  </div>
+
+  <div class="candidate-page-badge">CANDIDATE 1 OF 5  ·  RANK #1</div>
+
+  <div class="title-block" style="margin-bottom: 10px;">
+    <div class="title-main" style="font-size: 22px;">KEVIN T</div>
+    <div class="title-sub">FULL STACK DEVELOPER  |  6 YEARS EXPERIENCE  |  CITY, STATE</div>
+  </div>
+
+  <hr class="sep">
+
+  <!-- Score Metrics -->
+  <div class="metrics" style="margin: 14px 0 12px;">
+    <div class="metric">
+      <div class="metric-val green" style="font-size: 28px;">85</div>
+      <div class="metric-label">OVERALL SCORE</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">88</div>
+      <div class="metric-label">SKILL MATCH</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">82</div>
+      <div class="metric-label">EXPERIENCE</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">80</div>
+      <div class="metric-label">DEPTH</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">75</div>
+      <div class="metric-label">EDUCATION</div>
+    </div>
+  </div>
+
+  <div style="text-align:center; margin-bottom: 12px;"><span class="rec-pill strong-yes" style="font-size:8px; padding:4px 14px;">STRONG YES</span></div>
+
+  <!-- Analysis Summary -->
+  <div style="padding: 0 10px; margin-bottom: 10px;">
+    <p class="body-text">
+      Kevin presents a strong match for the Senior Full Stack Developer role at Acme Technologies. With 6 years of progressive full-stack experience spanning React, Node.js, and Python, his technical profile aligns closely with 88% of the required skills. His trajectory from frontend developer to full-stack lead at a Series A startup demonstrates the growth mindset and ownership mentality that fits a senior IC role. The primary gap is limited cloud infrastructure experience, though his recent Docker and basic AWS exposure suggests upward trajectory.
+    </p>
+  </div>
+
+  <hr class="sep">
+
+  <!-- Score Breakdown Bars + Strengths -->
+  <div class="two-col">
+    <div>
+      <div class="col-section-label">SCORE BREAKDOWN</div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Skill Match</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:88%; background: var(--green);"></div></div>
+        <div class="breakdown-val">88%</div>
+      </div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Experience</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:82%; background: var(--green);"></div></div>
+        <div class="breakdown-val">82%</div>
+      </div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Depth</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:80%; background: var(--green);"></div></div>
+        <div class="breakdown-val">80%</div>
+      </div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Education</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:75%; background: var(--green);"></div></div>
+        <div class="breakdown-val">75%</div>
+      </div>
+
+      <div style="margin-top: 14px;">
+        <div class="col-section-label">RISK FLAGS</div>
+        <div class="flag">
+          <span class="flag-severity medium">MEDIUM</span>
+          <div class="flag-text"><span class="flag-title">Limited Cloud/DevOps:</span> No production AWS or CI/CD pipeline ownership. Basic Docker knowledge only.</div>
+        </div>
+        <div class="flag">
+          <span class="flag-severity low">LOW</span>
+          <div class="flag-text"><span class="flag-title">Short Tenure Pattern:</span> 2 roles under 18 months in early career. Recent role shows 2.5+ years stability.</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="col-section-label">KEY STRENGTHS</div>
+      <div class="strength-item">Deep React + TypeScript expertise with production apps serving 10K+ users</div>
+      <div class="strength-item">Full ownership experience: built investor-ready prototypes independently</div>
+      <div class="strength-item">Startup background aligns with Acme's growth-stage culture</div>
+
+      <div style="margin-top: 14px;">
+        <div class="col-section-label">SKILL GAPS</div>
+        <div class="gap-item">AWS/cloud infrastructure — no production deployment experience</div>
+        <div class="gap-item">System design at scale — primarily small to mid-size applications</div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="sep">
+
+  <!-- Interview Questions -->
+  <div class="section-label">RECOMMENDED INTERVIEW QUESTIONS</div>
+
+  <div class="tp-row">
+    <div class="tp-num">1</div>
+    <div>
+      <div class="tp-text">Walk me through the architecture of the most complex system you've built end-to-end.</div>
+      <div class="tp-rationale">Probes system design depth — the primary gap area.</div>
+    </div>
+  </div>
+  <div class="tp-row">
+    <div class="tp-num">2</div>
+    <div>
+      <div class="tp-text">Describe a production issue you debugged across the full stack. How did you diagnose it?</div>
+      <div class="tp-rationale">Validates full-stack understanding beyond feature development.</div>
+    </div>
+  </div>
+  <div class="tp-row">
+    <div class="tp-num">3</div>
+    <div>
+      <div class="tp-text">What's your experience with CI/CD pipelines and deployment automation?</div>
+      <div class="tp-rationale">Directly addresses the cloud/DevOps gap.</div>
+    </div>
+  </div>
+
+  <div class="footer">CONFIDENTIAL  |  FOR INTERNAL RECRUITER USE ONLY  |  VETLAYER BATCH ANALYSIS BRIEF</div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- PAGE 3: CANDIDATE 2 — AKSHAT PRAHALADH                            -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="page-label">PAGE 3 — CANDIDATE ANALYSIS (2 of 5)</div>
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="brand" style="font-size:12px;">VETLAYER</div>
+    </div>
+    <div class="header-right">
+      <div class="header-date">March 12, 2026</div>
+    </div>
+  </div>
+
+  <div class="candidate-page-badge">CANDIDATE 2 OF 5  ·  RANK #2</div>
+
+  <div class="title-block" style="margin-bottom: 10px;">
+    <div class="title-main" style="font-size: 22px;">AKSHAT PRAHALADH</div>
+    <div class="title-sub">IT SUPPORT SPECIALIST  |  2 YEARS EXPERIENCE  |  CITY, STATE</div>
+  </div>
+
+  <hr class="sep">
+
+  <div class="metrics" style="margin: 14px 0 12px;">
+    <div class="metric">
+      <div class="metric-val green" style="font-size: 28px;">76</div>
+      <div class="metric-label">OVERALL SCORE</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">80</div>
+      <div class="metric-label">SKILL MATCH</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">65</div>
+      <div class="metric-label">EXPERIENCE</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">72</div>
+      <div class="metric-label">DEPTH</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">70</div>
+      <div class="metric-label">EDUCATION</div>
+    </div>
+  </div>
+
+  <div style="text-align:center; margin-bottom: 12px;"><span class="rec-pill strong-yes" style="font-size:8px; padding:4px 14px;">STRONG YES</span></div>
+
+  <div style="padding: 0 10px; margin-bottom: 10px;">
+    <p class="body-text">
+      Akshat demonstrates impressive technical breadth for a candidate with 2 years of experience. His IT support background provides a strong troubleshooting foundation, and his self-driven Python and automation work signals high growth trajectory. While his experience level is below the "Senior" title requirement, his skill match score of 80% and hands-on DevOps exposure (Docker, basic CI/CD) fill a gap that most other candidates in this pool lack. Strong candidate for a mid-level hire with fast-track senior potential.
+    </p>
+  </div>
+
+  <hr class="sep">
+
+  <div class="two-col">
+    <div>
+      <div class="col-section-label">SCORE BREAKDOWN</div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Skill Match</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:80%; background: var(--green);"></div></div>
+        <div class="breakdown-val">80%</div>
+      </div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Experience</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:65%; background: var(--amber);"></div></div>
+        <div class="breakdown-val">65%</div>
+      </div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Depth</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:72%; background: var(--green);"></div></div>
+        <div class="breakdown-val">72%</div>
+      </div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Education</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:70%; background: var(--green);"></div></div>
+        <div class="breakdown-val">70%</div>
+      </div>
+
+      <div style="margin-top: 14px;">
+        <div class="col-section-label">RISK FLAGS</div>
+        <div class="flag">
+          <span class="flag-severity medium">MEDIUM</span>
+          <div class="flag-text"><span class="flag-title">Experience Gap:</span> 2 years vs. the 5+ years typically expected for a senior role. May need mentorship ramp.</div>
+        </div>
+        <div class="flag">
+          <span class="flag-severity low">LOW</span>
+          <div class="flag-text"><span class="flag-title">Role Pivot:</span> Transitioning from IT support to full-stack development. Production app experience is project-based.</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="col-section-label">KEY STRENGTHS</div>
+      <div class="strength-item">Hands-on DevOps exposure (Docker, CI/CD) — rare in this candidate pool</div>
+      <div class="strength-item">Strong Python and automation skills with real-world tooling projects</div>
+      <div class="strength-item">Self-directed learner with demonstrable growth trajectory</div>
+
+      <div style="margin-top: 14px;">
+        <div class="col-section-label">SKILL GAPS</div>
+        <div class="gap-item">Limited production-scale application experience</div>
+        <div class="gap-item">Frontend framework depth (React) is project-based, not production-tested</div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="sep">
+
+  <div class="section-label">RECOMMENDED INTERVIEW QUESTIONS</div>
+
+  <div class="tp-row">
+    <div class="tp-num">1</div>
+    <div>
+      <div class="tp-text">Tell me about the most complex automation you've built. What was the scale and how did you handle edge cases?</div>
+      <div class="tp-rationale">Validates depth of technical problem-solving beyond support scripts.</div>
+    </div>
+  </div>
+  <div class="tp-row">
+    <div class="tp-num">2</div>
+    <div>
+      <div class="tp-text">How would you approach building a production React application from scratch? Walk me through your architecture decisions.</div>
+      <div class="tp-rationale">Tests frontend production readiness — the key gap to validate.</div>
+    </div>
+  </div>
+  <div class="tp-row">
+    <div class="tp-num">3</div>
+    <div>
+      <div class="tp-text">Describe your experience with Docker and CI/CD. What does your ideal deployment pipeline look like?</div>
+      <div class="tp-rationale">Leverages his strongest differentiator vs. other candidates.</div>
+    </div>
+  </div>
+
+  <div class="footer">CONFIDENTIAL  |  FOR INTERNAL RECRUITER USE ONLY  |  VETLAYER BATCH ANALYSIS BRIEF</div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- PAGE 4: CANDIDATE 3 — FIRST LAST                                  -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="page-label">PAGE 4 — CANDIDATE ANALYSIS (3 of 5)</div>
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="brand" style="font-size:12px;">VETLAYER</div>
+    </div>
+    <div class="header-right">
+      <div class="header-date">March 12, 2026</div>
+    </div>
+  </div>
+
+  <div class="candidate-page-badge">CANDIDATE 3 OF 5  ·  RANK #3</div>
+
+  <div class="title-block" style="margin-bottom: 10px;">
+    <div class="title-main" style="font-size: 22px;">FIRST LAST</div>
+    <div class="title-sub">FRONT-END DEVELOPER  |  6 YEARS EXPERIENCE  |  CITY, STATE</div>
+  </div>
+
+  <hr class="sep">
+
+  <div class="metrics" style="margin: 14px 0 12px;">
+    <div class="metric">
+      <div class="metric-val amber" style="font-size: 28px;">64</div>
+      <div class="metric-label">OVERALL SCORE</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">70</div>
+      <div class="metric-label">SKILL MATCH</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">62</div>
+      <div class="metric-label">EXPERIENCE</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">55</div>
+      <div class="metric-label">DEPTH</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">68</div>
+      <div class="metric-label">EDUCATION</div>
+    </div>
+  </div>
+
+  <div style="text-align:center; margin-bottom: 12px;"><span class="rec-pill yes" style="font-size:8px; padding:4px 14px;">YES</span></div>
+
+  <div style="padding: 0 10px; margin-bottom: 10px;">
+    <p class="body-text">
+      First Last brings 6 years of solid frontend development experience with strong React and TypeScript proficiency. The skill match is decent at 70%, primarily driven by deep frontend expertise. However, the "Full Stack" dimension of the role presents a concern — backend experience is limited to basic API consumption, with no evidence of server-side architecture, database design, or DevOps involvement. The depth score of 55% reflects this one-dimensional technical profile. A good candidate if the team can tolerate a frontend-heavy senior developer, but not a traditional full-stack fit.
+    </p>
+  </div>
+
+  <hr class="sep">
+
+  <div class="two-col">
+    <div>
+      <div class="col-section-label">SCORE BREAKDOWN</div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Skill Match</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:70%; background: var(--amber);"></div></div>
+        <div class="breakdown-val">70%</div>
+      </div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Experience</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:62%; background: var(--amber);"></div></div>
+        <div class="breakdown-val">62%</div>
+      </div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Depth</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:55%; background: var(--amber);"></div></div>
+        <div class="breakdown-val">55%</div>
+      </div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Education</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:68%; background: var(--amber);"></div></div>
+        <div class="breakdown-val">68%</div>
+      </div>
+
+      <div style="margin-top: 14px;">
+        <div class="col-section-label">RISK FLAGS</div>
+        <div class="flag">
+          <span class="flag-severity high">HIGH</span>
+          <div class="flag-text"><span class="flag-title">No Backend Experience:</span> Resume shows zero server-side, database, or API development. Frontend-only profile for a full-stack role.</div>
+        </div>
+        <div class="flag">
+          <span class="flag-severity medium">MEDIUM</span>
+          <div class="flag-text"><span class="flag-title">Depth Concern:</span> 6 years but limited to UI development. No evidence of architecture-level ownership.</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="col-section-label">KEY STRENGTHS</div>
+      <div class="strength-item">Strong React + TypeScript production experience across multiple projects</div>
+      <div class="strength-item">6 years of consistent frontend work shows domain stability</div>
+      <div class="strength-item">Solid CSS/design system experience — can own frontend UX decisions</div>
+
+      <div style="margin-top: 14px;">
+        <div class="col-section-label">SKILL GAPS</div>
+        <div class="gap-item">Server-side development — no Node.js, Python, or backend framework experience</div>
+        <div class="gap-item">Database design and management — no SQL/NoSQL evidence</div>
+        <div class="gap-item">Cloud infrastructure and deployment tooling</div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="sep">
+
+  <div class="section-label">RECOMMENDED INTERVIEW QUESTIONS</div>
+
+  <div class="tp-row">
+    <div class="tp-num">1</div>
+    <div>
+      <div class="tp-text">Have you worked on any backend or API development projects? What's your comfort level with server-side logic?</div>
+      <div class="tp-rationale">Directly probes the critical backend gap — may reveal unreported experience.</div>
+    </div>
+  </div>
+  <div class="tp-row">
+    <div class="tp-num">2</div>
+    <div>
+      <div class="tp-text">How do you approach frontend performance optimization at scale? Give a specific example.</div>
+      <div class="tp-rationale">Leverages strength area to assess depth of technical thinking.</div>
+    </div>
+  </div>
+  <div class="tp-row">
+    <div class="tp-num">3</div>
+    <div>
+      <div class="tp-text">If tasked with building a new full-stack feature from database to UI, how would you approach it?</div>
+      <div class="tp-rationale">Assesses willingness and ability to grow into full-stack role requirements.</div>
+    </div>
+  </div>
+
+  <div class="footer">CONFIDENTIAL  |  FOR INTERNAL RECRUITER USE ONLY  |  VETLAYER BATCH ANALYSIS BRIEF</div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- PAGE 5: CANDIDATE 4 — NABLA HENNA K P                             -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="page-label">PAGE 5 — CANDIDATE ANALYSIS (4 of 5)</div>
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="brand" style="font-size:12px;">VETLAYER</div>
+    </div>
+    <div class="header-right">
+      <div class="header-date">March 12, 2026</div>
+    </div>
+  </div>
+
+  <div class="candidate-page-badge">CANDIDATE 4 OF 5  ·  RANK #4</div>
+
+  <div class="title-block" style="margin-bottom: 10px;">
+    <div class="title-main" style="font-size: 22px;">NABLA HENNA K P</div>
+    <div class="title-sub">RECENT GRADUATE  |  &lt;1 YEAR EXPERIENCE  |  CITY, STATE</div>
+  </div>
+
+  <hr class="sep">
+
+  <div class="metrics" style="margin: 14px 0 12px;">
+    <div class="metric">
+      <div class="metric-val amber" style="font-size: 28px;">48</div>
+      <div class="metric-label">OVERALL SCORE</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">52</div>
+      <div class="metric-label">SKILL MATCH</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">30</div>
+      <div class="metric-label">EXPERIENCE</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">40</div>
+      <div class="metric-label">DEPTH</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">72</div>
+      <div class="metric-label">EDUCATION</div>
+    </div>
+  </div>
+
+  <div style="text-align:center; margin-bottom: 12px;"><span class="rec-pill maybe" style="font-size:8px; padding:4px 14px;">MAYBE</span></div>
+
+  <div style="padding: 0 10px; margin-bottom: 10px;">
+    <p class="body-text">
+      Nabla is a recent graduate with foundational knowledge in programming and web development. The education score of 72% reflects a relevant CS degree, but the experience gap is significant for a senior-level position — under 1 year of professional experience against a 5+ year requirement. The skill match of 52% shows basic familiarity with several required technologies through academic projects, but no production-grade experience. A promising early-career candidate who could be an excellent fit for a junior or associate developer role.
+    </p>
+  </div>
+
+  <hr class="sep">
+
+  <div class="two-col">
+    <div>
+      <div class="col-section-label">SCORE BREAKDOWN</div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Skill Match</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:52%; background: var(--amber);"></div></div>
+        <div class="breakdown-val">52%</div>
+      </div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Experience</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:30%; background: var(--red);"></div></div>
+        <div class="breakdown-val">30%</div>
+      </div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Depth</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:40%; background: var(--red);"></div></div>
+        <div class="breakdown-val">40%</div>
+      </div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Education</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:72%; background: var(--green);"></div></div>
+        <div class="breakdown-val">72%</div>
+      </div>
+
+      <div style="margin-top: 14px;">
+        <div class="col-section-label">RISK FLAGS</div>
+        <div class="flag">
+          <span class="flag-severity high">HIGH</span>
+          <div class="flag-text"><span class="flag-title">Experience Mismatch:</span> &lt;1 year experience for a senior-level role. Significant mentorship and ramp-up needed.</div>
+        </div>
+        <div class="flag">
+          <span class="flag-severity medium">MEDIUM</span>
+          <div class="flag-text"><span class="flag-title">Academic Only:</span> All technical experience from coursework and personal projects. No production environment exposure.</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="col-section-label">KEY STRENGTHS</div>
+      <div class="strength-item">Relevant CS degree with strong academic foundation</div>
+      <div class="strength-item">Familiarity with Python and basic web frameworks through coursework</div>
+      <div class="strength-item">Fresh perspective and high adaptability typical of recent graduates</div>
+
+      <div style="margin-top: 14px;">
+        <div class="col-section-label">SKILL GAPS</div>
+        <div class="gap-item">No production application development experience</div>
+        <div class="gap-item">Limited exposure to modern frontend frameworks (React, Vue)</div>
+        <div class="gap-item">No cloud, DevOps, or deployment experience</div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="sep">
+
+  <div class="section-label">RECOMMENDED INTERVIEW QUESTIONS</div>
+
+  <div class="tp-row">
+    <div class="tp-num">1</div>
+    <div>
+      <div class="tp-text">Tell me about the most technically challenging project you've worked on. What did you learn?</div>
+      <div class="tp-rationale">Assesses depth of learning and ability to tackle complex problems independently.</div>
+    </div>
+  </div>
+  <div class="tp-row">
+    <div class="tp-num">2</div>
+    <div>
+      <div class="tp-text">How do you approach learning a new technology or framework? Walk me through your most recent example.</div>
+      <div class="tp-rationale">Evaluates self-learning ability — critical for a junior hire with growth expectations.</div>
+    </div>
+  </div>
+  <div class="tp-row">
+    <div class="tp-num">3</div>
+    <div>
+      <div class="tp-text">If you had to build a web application from scratch today, what tech stack would you choose and why?</div>
+      <div class="tp-rationale">Tests awareness of modern tech landscape and reasoning ability.</div>
+    </div>
+  </div>
+
+  <div class="footer">CONFIDENTIAL  |  FOR INTERNAL RECRUITER USE ONLY  |  VETLAYER BATCH ANALYSIS BRIEF</div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- PAGE 6: CANDIDATE 5 — MUHAMMED SAHIL                              -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="page-label">PAGE 6 — CANDIDATE ANALYSIS (5 of 5)</div>
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="brand" style="font-size:12px;">VETLAYER</div>
+    </div>
+    <div class="header-right">
+      <div class="header-date">March 12, 2026</div>
+    </div>
+  </div>
+
+  <div class="candidate-page-badge">CANDIDATE 5 OF 5  ·  RANK #5</div>
+
+  <div class="title-block" style="margin-bottom: 10px;">
+    <div class="title-main" style="font-size: 22px;">MUHAMMED SAHIL</div>
+    <div class="title-sub">COPYWRITING INTERN  |  &lt;1 YEAR EXPERIENCE  |  CITY, STATE</div>
+  </div>
+
+  <hr class="sep">
+
+  <div class="metrics" style="margin: 14px 0 12px;">
+    <div class="metric">
+      <div class="metric-val" style="font-size: 28px; color: var(--red);">22</div>
+      <div class="metric-label">OVERALL SCORE</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">18</div>
+      <div class="metric-label">SKILL MATCH</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">15</div>
+      <div class="metric-label">EXPERIENCE</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">12</div>
+      <div class="metric-label">DEPTH</div>
+    </div>
+    <div class="metric">
+      <div class="metric-val">45</div>
+      <div class="metric-label">EDUCATION</div>
+    </div>
+  </div>
+
+  <div style="text-align:center; margin-bottom: 12px;"><span class="rec-pill no" style="font-size:8px; padding:4px 14px;">NO</span></div>
+
+  <div style="padding: 0 10px; margin-bottom: 10px;">
+    <p class="body-text">
+      Muhammed's background is in copywriting and content creation, with no evidence of software development skills or technical training relevant to a Full Stack Developer role. The 22% overall score reflects a fundamental mismatch between the candidate's profile and the position requirements. While his communication skills could be an asset in a technical writing or product marketing role, there is no pathway to fit for this engineering position. Resume may have been submitted to the wrong job listing.
+    </p>
+  </div>
+
+  <hr class="sep">
+
+  <div class="two-col">
+    <div>
+      <div class="col-section-label">SCORE BREAKDOWN</div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Skill Match</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:18%; background: var(--red);"></div></div>
+        <div class="breakdown-val">18%</div>
+      </div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Experience</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:15%; background: var(--red);"></div></div>
+        <div class="breakdown-val">15%</div>
+      </div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Depth</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:12%; background: var(--red);"></div></div>
+        <div class="breakdown-val">12%</div>
+      </div>
+      <div class="breakdown-row">
+        <div class="breakdown-label">Education</div>
+        <div class="breakdown-bar"><div class="breakdown-fill" style="width:45%; background: var(--amber);"></div></div>
+        <div class="breakdown-val">45%</div>
+      </div>
+
+      <div style="margin-top: 14px;">
+        <div class="col-section-label">RISK FLAGS</div>
+        <div class="flag">
+          <span class="flag-severity high">HIGH</span>
+          <div class="flag-text"><span class="flag-title">Role Mismatch:</span> No software development skills. Copywriting/content background has zero overlap with engineering requirements.</div>
+        </div>
+        <div class="flag">
+          <span class="flag-severity high">HIGH</span>
+          <div class="flag-text"><span class="flag-title">No Technical Foundation:</span> No programming languages, frameworks, or development tools identified in resume.</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="col-section-label">KEY STRENGTHS</div>
+      <div class="strength-item">Strong written communication skills (transferable to technical documentation if role-pivoting)</div>
+      <div class="strength-item">Content strategy experience could be valuable in a product/UX writing context</div>
+
+      <div style="margin-top: 14px;">
+        <div class="col-section-label">SKILL GAPS</div>
+        <div class="gap-item">All core technical skills — no programming language proficiency</div>
+        <div class="gap-item">No framework, database, or cloud experience</div>
+        <div class="gap-item">No development workflow knowledge (Git, CI/CD, testing)</div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="sep">
+
+  <div class="section-label">NOTES</div>
+
+  <div style="padding: 0 10px;">
+    <p class="body-text">
+      <em>No interview recommended for this role.</em> If the organization has openings in content marketing, technical writing, or product copywriting, this candidate's profile may be a better fit. Consider redirecting to the appropriate hiring manager.
+    </p>
+  </div>
+
+  <div class="footer">CONFIDENTIAL  |  FOR INTERNAL RECRUITER USE ONLY  |  VETLAYER BATCH ANALYSIS BRIEF</div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- PAGE 7: COMPARATIVE ANALYSIS & RECOMMENDATIONS                     -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="page-label">PAGE 7 — COMPARATIVE ANALYSIS & RECOMMENDATIONS</div>
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="brand" style="font-size:12px;">VETLAYER</div>
+    </div>
+    <div class="header-right">
+      <div class="header-date">March 12, 2026</div>
+    </div>
+  </div>
+
+  <div class="section-label" style="margin-bottom: 14px;">SKILL COVERAGE MATRIX</div>
+
+  <table class="ranking-table" style="font-size: 8px;">
+    <thead>
+      <tr>
+        <th>REQUIRED SKILL</th>
+        <th class="center">Kevin T</th>
+        <th class="center">Akshat P</th>
+        <th class="center">First L</th>
+        <th class="center">Nabla H</th>
+        <th class="center">Sahil M</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="font-weight:500;">React / TypeScript</td>
+        <td class="center"><span class="score-val high" style="font-size:8px;">4/5</span></td>
+        <td class="center"><span class="score-val high" style="font-size:8px;">3/5</span></td>
+        <td class="center"><span class="score-val high" style="font-size:8px;">4/5</span></td>
+        <td class="center"><span class="score-val mid" style="font-size:8px;">2/5</span></td>
+        <td class="center"><span class="score-val low" style="font-size:8px;">0/5</span></td>
+      </tr>
+      <tr>
+        <td style="font-weight:500;">Node.js / Express</td>
+        <td class="center"><span class="score-val high" style="font-size:8px;">4/5</span></td>
+        <td class="center"><span class="score-val mid" style="font-size:8px;">2/5</span></td>
+        <td class="center"><span class="score-val mid" style="font-size:8px;">2/5</span></td>
+        <td class="center"><span class="score-val low" style="font-size:8px;">1/5</span></td>
+        <td class="center"><span class="score-val low" style="font-size:8px;">0/5</span></td>
+      </tr>
+      <tr>
+        <td style="font-weight:500;">Python / FastAPI</td>
+        <td class="center"><span class="score-val high" style="font-size:8px;">3/5</span></td>
+        <td class="center"><span class="score-val high" style="font-size:8px;">3/5</span></td>
+        <td class="center"><span class="score-val low" style="font-size:8px;">1/5</span></td>
+        <td class="center"><span class="score-val mid" style="font-size:8px;">2/5</span></td>
+        <td class="center"><span class="score-val low" style="font-size:8px;">0/5</span></td>
+      </tr>
+      <tr>
+        <td style="font-weight:500;">PostgreSQL</td>
+        <td class="center"><span class="score-val high" style="font-size:8px;">3/5</span></td>
+        <td class="center"><span class="score-val mid" style="font-size:8px;">2/5</span></td>
+        <td class="center"><span class="score-val mid" style="font-size:8px;">2/5</span></td>
+        <td class="center"><span class="score-val low" style="font-size:8px;">1/5</span></td>
+        <td class="center"><span class="score-val low" style="font-size:8px;">0/5</span></td>
+      </tr>
+      <tr>
+        <td style="font-weight:500;">AWS / Cloud</td>
+        <td class="center"><span class="score-val low" style="font-size:8px;">1/5</span></td>
+        <td class="center"><span class="score-val mid" style="font-size:8px;">2/5</span></td>
+        <td class="center"><span class="score-val low" style="font-size:8px;">0/5</span></td>
+        <td class="center"><span class="score-val low" style="font-size:8px;">0/5</span></td>
+        <td class="center"><span class="score-val low" style="font-size:8px;">0/5</span></td>
+      </tr>
+      <tr>
+        <td style="font-weight:500;">CI/CD / Docker</td>
+        <td class="center"><span class="score-val mid" style="font-size:8px;">2/5</span></td>
+        <td class="center"><span class="score-val high" style="font-size:8px;">3/5</span></td>
+        <td class="center"><span class="score-val low" style="font-size:8px;">1/5</span></td>
+        <td class="center"><span class="score-val low" style="font-size:8px;">0/5</span></td>
+        <td class="center"><span class="score-val low" style="font-size:8px;">0/5</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <hr class="sep" style="margin-top: 18px;">
+
+  <!-- Considerations -->
+  <div class="section-label">CONSIDERATIONS</div>
+
+  <div class="consideration">
+    <strong>Cloud/DevOps gap across pool:</strong> No candidate in this batch has deep production cloud infrastructure experience. If this is critical for the role, consider expanding the candidate search or pairing the hire with a DevOps-focused team member.
+  </div>
+  <div class="consideration">
+    <strong>Seniority calibration:</strong> The top 2 candidates have 2-6 years of experience. Verify the role truly requires a "Senior" title or if a strong mid-level engineer with high growth potential (like Akshat) could be a better long-term investment.
+  </div>
+
+  <hr class="sep">
+
+  <!-- Final Recommendation -->
+  <div class="section-label">RECRUITER RECOMMENDATION</div>
+
+  <div style="padding: 0 10px;">
+    <p class="body-text">
+      <strong>Advance to interview:</strong> Kevin T (85%) and Akshat Prahaladh (76%) — both show strong technical alignment and culture fit signals. Kevin is the stronger immediate fit; Akshat offers high growth potential at a likely lower compensation band.
+    </p>
+    <p class="body-text" style="margin-top: 8px;">
+      <strong>Hold for review:</strong> First Last (64%) — solid frontend skills but limited backend depth. Worth a technical screen to assess full-stack capability beyond what the resume shows.
+    </p>
+    <p class="body-text" style="margin-top: 8px;">
+      <strong>Pass:</strong> Nabla Henna K P (48%) and Muhammed Sahil (22%) — insufficient experience and skill alignment for a senior-level role. Consider for junior openings if available.
+    </p>
+  </div>
+
+  <div class="footer">CONFIDENTIAL  |  FOR INTERNAL RECRUITER USE ONLY  |  VETLAYER BATCH ANALYSIS BRIEF</div>
+</div>
+
+</body>
+</html>

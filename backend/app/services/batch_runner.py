@@ -360,9 +360,10 @@ async def _execute_batch(
                 state.completed += 1
                 continue
 
-            # Schedule for pipeline execution
+            # Schedule for pipeline execution — pass names/titles for error
+            # reporting, but NOT the ORM objects (they're detached from session)
             tasks.append(_run_single_pair(
-                semaphore, state, candidate, job, cid_str, jid_str
+                semaphore, state, candidate.name, job.title, cid_str, jid_str
             ))
 
     # ── Execute all pipeline tasks concurrently ─────────────────────
@@ -393,8 +394,8 @@ async def _execute_batch(
 async def _run_single_pair(
     semaphore: asyncio.Semaphore,
     state: BatchState,
-    candidate: Candidate,
-    job: Job,
+    candidate_name: str,
+    job_title: str,
     cid_str: str,
     jid_str: str,
 ):
@@ -411,6 +412,14 @@ async def _run_single_pair(
             )
 
             async with AsyncSessionLocal() as db:
+                # Re-fetch candidate and job INSIDE this session to avoid
+                # detached ORM object errors (they were fetched in a different
+                # session in _execute_batch and are no longer tracked)
+                candidate = await db.get(Candidate, uuid.UUID(cid_str))
+                job = await db.get(Job, uuid.UUID(jid_str))
+                if not candidate or not job:
+                    raise ValueError("Candidate or job not found in DB")
+
                 # Ensure job has parsed skills
                 required_skills, preferred_skills = await _ensure_parsed_skills(job, db)
 
@@ -565,9 +574,9 @@ async def _run_single_pair(
             logger.error(f"Batch pair failed ({cid_str} × {jid_str}): {e}", exc_info=True)
             item = BatchItemResult(
                 candidate_id=cid_str,
-                candidate_name=candidate.name if candidate else "Unknown",
+                candidate_name=candidate_name or "Unknown",
                 job_id=jid_str,
-                job_title=job.title if job else "Unknown",
+                job_title=job_title or "Unknown",
                 error=str(e),
             )
             state.results.append(item)

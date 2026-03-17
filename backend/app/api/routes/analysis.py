@@ -579,7 +579,12 @@ async def export_batch_brief(
         ref_code=ref_code,
     )
 
-    safe_title = job_title.replace(" ", "_").replace("/", "_")
+    # Sanitize job title for HTTP Content-Disposition header (latin-1 only).
+    # Strip all non-ASCII chars (en-dashes, em-dashes, smart quotes, etc.)
+    import unicodedata
+    safe_title = unicodedata.normalize("NFKD", job_title)
+    safe_title = safe_title.encode("ascii", "ignore").decode("ascii")
+    safe_title = re.sub(r'[^\w\s-]', '', safe_title).strip().replace(" ", "_")
     filename = f"Batch_Analysis_Brief_{safe_title}.pdf"
 
     return Response(
