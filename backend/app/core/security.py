@@ -41,12 +41,13 @@ def validate_password_strength(password: str) -> Optional[str]:
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
-def create_access_token(user_id: str, username: str, role: str) -> str:
+def create_access_token(user_id: str, username: str, role: str, company_id: str = None) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
         "sub": user_id,
         "username": username,
         "role": role,
+        "company_id": company_id,
         "type": "access",
         "exp": expire,
     }
@@ -104,7 +105,10 @@ async def get_current_user(
     except (ValueError, AttributeError):
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
-    result = await db.execute(select(User).where(User.id == user_uuid))
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(
+        select(User).where(User.id == user_uuid).options(selectinload(User.company))
+    )
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
@@ -114,13 +118,50 @@ async def get_current_user(
 
 
 async def get_current_admin(user: User = Depends(get_current_user)) -> User:
-    """Require the current user to be an admin."""
-    if user.role != "admin":
+    """Require the current user to be an admin (super_admin, company_admin, or legacy admin)."""
+    if user.role not in ("admin", "super_admin", "company_admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required",
         )
     return user
+
+
+async def get_current_admin_or_company_admin(user: User = Depends(get_current_user)) -> User:
+    """Require super_admin or company_admin role."""
+    if user.role not in ("super_admin", "company_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required",
+        )
+    return user
+
+
+async def get_current_super_admin(user: User = Depends(get_current_user)) -> User:
+    """Require super_admin role."""
+    if user.role != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin privileges required",
+        )
+    return user
+
+
+def require_company(user: User) -> uuid.UUID:
+    """Extract company_id from user, raising 400 if user has no company (super_admin).
+    Use this for WRITE operations where a company context is strictly required."""
+    if not user.company_id:
+        raise HTTPException(
+            status_code=400,
+            detail="This action requires a company context",
+        )
+    return user.company_id
+
+
+def get_user_company_id(user: User) -> Optional[uuid.UUID]:
+    """Get user's company_id, or None for super_admin (meaning 'all companies').
+    Use this for READ operations where super_admin should see everything."""
+    return user.company_id
 
 
 def get_client_ip(request: Request) -> str:

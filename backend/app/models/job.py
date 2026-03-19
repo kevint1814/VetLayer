@@ -4,7 +4,7 @@ Job model — represents a job description / role requirements.
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Text, DateTime
+from sqlalchemy import String, Text, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,6 +16,9 @@ class Job(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    company_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True
     )
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     company: Mapped[str | None] = mapped_column(String(300), nullable=True)
@@ -35,7 +38,7 @@ class Job(Base):
     remote_policy: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # ── Metadata ─────────────────────────────────────────────────────
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )

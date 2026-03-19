@@ -5,11 +5,13 @@ export interface AuthUser {
   id: string;
   username: string;
   full_name: string;
-  role: "admin" | "recruiter";
+  role: "super_admin" | "company_admin" | "recruiter";
   is_active: boolean;
   force_password_change: boolean;
   last_login_at: string | null;
   created_at: string;
+  company_id: string | null;
+  company_name: string | null;
 }
 
 interface AuthState {

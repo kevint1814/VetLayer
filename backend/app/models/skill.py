@@ -12,6 +12,7 @@ import enum
 from app.core.database import Base
 
 
+
 class DepthLevel(enum.IntEnum):
     """Skill depth estimation scale (1-5)."""
     AWARENESS = 1       # Mentioned but no real evidence
@@ -38,6 +39,9 @@ class Skill(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    company_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True
     )
     candidate_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("candidates.id"), nullable=False, index=True

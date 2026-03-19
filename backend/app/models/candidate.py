@@ -4,7 +4,7 @@ Candidate model — represents a parsed resume / applicant.
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Text, DateTime, Float
+from sqlalchemy import String, Text, DateTime, Float, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,6 +16,9 @@ class Candidate(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    company_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True
     )
     # ── Basic info ───────────────────────────────────────────────────
     name: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -42,7 +45,7 @@ class Candidate(Base):
 
     # ── Metadata ─────────────────────────────────────────────────────
     source: Mapped[str | None] = mapped_column(String(100), nullable=True, default="upload")  # "upload", "api", "synthetic"
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )

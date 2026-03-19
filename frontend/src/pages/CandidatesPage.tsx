@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   Search, Users, MapPin, Building2, Calendar, Upload, Trash2,
   CheckCircle2, Loader2, AlertCircle, FileText, FilePlus, XCircle, Clock, Sparkles
@@ -23,7 +23,6 @@ function formatFileSize(bytes: number) {
 }
 
 export default function CandidatesPage() {
-  const navigate = useNavigate();
   const [allCandidates, setAllCandidates] = useState<Candidate[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);

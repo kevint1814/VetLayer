@@ -20,6 +20,9 @@ class AuditLog(Base):
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
     )
+    company_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True, index=True
+    )
     username: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     action: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     # e.g. "login", "login_failed", "upload_candidate", "run_analysis",

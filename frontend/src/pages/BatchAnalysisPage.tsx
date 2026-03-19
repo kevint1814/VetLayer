@@ -41,6 +41,45 @@ export default function BatchAnalysisPage() {
   const [deleteBatchId, setDeleteBatchId] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  // Live timer (client-side, independent of polling)
+  const [liveElapsed, setLiveElapsed] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const batchStartRef = useRef<number | null>(null);
+
+  // Start/stop live timer based on batch status
+  useEffect(() => {
+    if (batchStatus?.status === "processing") {
+      if (!batchStartRef.current) batchStartRef.current = Date.now();
+      timerRef.current = setInterval(() => {
+        setLiveElapsed(Date.now() - (batchStartRef.current || Date.now()));
+      }, 200);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = null;
+      // When done, use the server's authoritative elapsed time
+      if (batchStatus?.elapsed_ms) setLiveElapsed(batchStatus.elapsed_ms);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [batchStatus?.status]);
+
+  // Reset timer when starting a new batch
+  useEffect(() => {
+    if (launching) {
+      batchStartRef.current = Date.now();
+      setLiveElapsed(0);
+    }
+  }, [launching]);
+
+  const formatElapsed = (ms: number) => {
+    if (ms < 1000) return "0s";
+    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+    const mins = Math.floor(ms / 60000);
+    const secs = Math.floor((ms % 60000) / 1000);
+    return `${mins}m ${secs}s`;
+  };
+
   // Export state
   const [exporting, setExporting] = useState(false);
 
@@ -231,6 +270,8 @@ export default function BatchAnalysisPage() {
     setBatchStatus(null);
     setCompletionPhase("none");
     prevStatusRef.current = null;
+    batchStartRef.current = null;
+    setLiveElapsed(0);
     setSearchParams({});
     if (pollRef.current) {
       clearInterval(pollRef.current);
@@ -362,7 +403,7 @@ export default function BatchAnalysisPage() {
                     {batchStatus.completed} of {batchStatus.total} done
                     {batchStatus.cached > 0 && ` (${batchStatus.cached} cached)`}
                     {batchStatus.failed > 0 && ` · ${batchStatus.failed} failed`}
-                    {batchStatus.elapsed_ms ? ` · ${(batchStatus.elapsed_ms / 1000).toFixed(1)}s` : ""}
+                    {liveElapsed > 0 ? ` · ${formatElapsed(liveElapsed)}` : ""}
                   </p>
                 </div>
               </div>

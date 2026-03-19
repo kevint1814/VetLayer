@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Users, Briefcase, Zap, BarChart3, Settings, HelpCircle, ChevronRight, Shield, LogOut } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, Zap, BarChart3, Settings, HelpCircle, ChevronRight, Shield, LogOut, Menu, X } from "lucide-react";
 import clsx from "clsx";
 import { useAuth } from "../../contexts/AuthContext";
 
@@ -14,6 +14,7 @@ const routeConfig: Record<string, { title: string; parent?: string }> = {
   "/analysis/:id": { title: "Analysis", parent: "/candidates" },
   "/ranked/:jobId": { title: "Ranked Results", parent: "/batch" },
   "/admin": { title: "Admin Panel" },
+  "/settings": { title: "Settings" },
 };
 
 function getRouteInfo(pathname: string): { title: string; breadcrumbs: { label: string; path?: string }[] } {
@@ -66,7 +67,11 @@ export default function Layout() {
   const { user, logout } = useAuth();
   const routeInfo = getRouteInfo(location.pathname);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Helper functions for role checking
+  const isAdmin = user?.role === "super_admin" || user?.role === "company_admin";
 
   const isActive = (path: string) => {
     if (path === "/") return location.pathname === "/";
@@ -79,10 +84,15 @@ export default function Layout() {
     { path: "/candidates", label: "Candidates", icon: Users },
     { path: "/jobs", label: "Jobs", icon: Briefcase },
     { path: "/batch", label: "Batch Analysis", icon: Zap },
-    ...(user?.role === "admin" ? [{ path: "/admin", label: "Admin Panel", icon: Shield }] : []),
+    ...(isAdmin ? [{ path: "/admin", label: "Admin Panel", icon: Shield }] : []),
   ];
 
-  // Close menu when clicking outside
+  // Close sidebar on route change (mobile)
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
+  // Close user menu when clicking outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -99,101 +109,151 @@ export default function Layout() {
     navigate("/login");
   };
 
+  // Shared sidebar content — rendered in both desktop (static) and mobile (drawer)
+  const sidebarContent = (
+    <>
+      {/* Logo */}
+      <div className="px-5 pt-6 pb-5">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center">
+            <BarChart3 size={16} className="text-white" />
+          </div>
+          <div>
+            <h1 className="text-[15px] font-semibold text-white tracking-tight leading-none">
+              VetLayer
+            </h1>
+            <p className="text-[10px] text-white/40 font-medium tracking-wide uppercase mt-0.5">
+              Decision Intelligence
+            </p>
+            {user?.company_name && (
+              <p className="text-[10px] text-white/30 font-medium mt-0.5 truncate">
+                {user.company_name}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 px-3 mt-1">
+        <p className="px-3 pb-2 text-[10px] font-semibold text-white/25 uppercase tracking-widest">
+          Menu
+        </p>
+        <div className="space-y-0.5">
+          {navItems.map(({ path, label, icon: Icon }) => (
+            <Link
+              key={path}
+              to={path}
+              className={clsx(
+                "flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-150 relative",
+                isActive(path)
+                  ? "bg-sidebar-active text-white"
+                  : "text-white/50 hover:text-white/80 hover:bg-sidebar-hover"
+              )}
+            >
+              {isActive(path) && (
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-4 bg-white rounded-r-full" />
+              )}
+              <Icon size={16} strokeWidth={isActive(path) ? 2 : 1.5} />
+              {label}
+            </Link>
+          ))}
+        </div>
+      </nav>
+
+      {/* Bottom section */}
+      <div className="px-3 pb-4">
+        <div className="border-t border-white/[0.06] mb-3" />
+        <div className="space-y-0.5">
+          <Link
+            to="/settings"
+            className={clsx(
+              "flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-150 w-full",
+              isActive("/settings")
+                ? "bg-sidebar-active text-white"
+                : "text-white/40 hover:text-white/70 hover:bg-sidebar-hover"
+            )}
+          >
+            <Settings size={15} strokeWidth={1.5} />
+            Settings
+          </Link>
+          <div
+            className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-white/20 cursor-default w-full"
+            title="Coming soon"
+          >
+            <HelpCircle size={15} strokeWidth={1.5} />
+            Help
+          </div>
+        </div>
+        <p className="px-3 pt-3 text-[10px] text-white/20 font-medium">
+          v0.1.0
+        </p>
+      </div>
+    </>
+  );
+
   return (
     <div className="flex h-screen overflow-hidden bg-surface-secondary">
-      {/* ── Sidebar ──────────────────────────────────────────────── */}
-      <aside className="w-[240px] flex-shrink-0 bg-sidebar flex flex-col border-r border-sidebar-border">
-        {/* Logo */}
-        <div className="px-5 pt-6 pb-5">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center">
-              <BarChart3 size={16} className="text-white" />
-            </div>
-            <div>
-              <h1 className="text-[15px] font-semibold text-white tracking-tight leading-none">
-                VetLayer
-              </h1>
-              <p className="text-[10px] text-white/40 font-medium tracking-wide uppercase mt-0.5">
-                Decision Intelligence
-              </p>
-            </div>
-          </div>
-        </div>
+      {/* ── Desktop sidebar (hidden on mobile) ─────────────────────── */}
+      <aside className="hidden lg:flex w-[240px] flex-shrink-0 bg-sidebar flex-col border-r border-sidebar-border">
+        {sidebarContent}
+      </aside>
 
-        {/* Navigation */}
-        <nav className="flex-1 px-3 mt-1">
-          <p className="px-3 pb-2 text-[10px] font-semibold text-white/25 uppercase tracking-widest">
-            Menu
-          </p>
-          <div className="space-y-0.5">
-            {navItems.map(({ path, label, icon: Icon }) => (
-              <Link
-                key={path}
-                to={path}
-                className={clsx(
-                  "flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-150 relative",
-                  isActive(path)
-                    ? "bg-sidebar-active text-white"
-                    : "text-white/50 hover:text-white/80 hover:bg-sidebar-hover"
-                )}
-              >
-                {isActive(path) && (
-                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-4 bg-white rounded-r-full" />
-                )}
-                <Icon size={16} strokeWidth={isActive(path) ? 2 : 1.5} />
-                {label}
-              </Link>
-            ))}
-          </div>
-        </nav>
-
-        {/* Bottom section */}
-        <div className="px-3 pb-4">
-          <div className="border-t border-white/[0.06] mb-3" />
-          <div className="space-y-0.5">
-            <div
-              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-white/20 cursor-default w-full"
-              title="Coming soon"
-            >
-              <Settings size={15} strokeWidth={1.5} />
-              Settings
-            </div>
-            <div
-              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-white/20 cursor-default w-full"
-              title="Coming soon"
-            >
-              <HelpCircle size={15} strokeWidth={1.5} />
-              Help
-            </div>
-          </div>
-          <p className="px-3 pt-3 text-[10px] text-white/20 font-medium">
-            v0.1.0
-          </p>
-        </div>
+      {/* ── Mobile sidebar drawer + backdrop ────────────────────────── */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+      <aside
+        className={clsx(
+          "fixed inset-y-0 left-0 z-50 w-[260px] bg-sidebar flex flex-col border-r border-sidebar-border transition-transform duration-200 ease-out lg:hidden",
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        {/* Close button */}
+        <button
+          onClick={() => setSidebarOpen(false)}
+          className="absolute top-4 right-3 p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+        >
+          <X size={18} />
+        </button>
+        {sidebarContent}
       </aside>
 
       {/* ── Main content ─────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Top bar */}
-        <header className="h-12 flex-shrink-0 bg-white/80 backdrop-blur-sm border-b border-surface-border flex items-center justify-between px-7">
-          {/* Breadcrumbs */}
-          <nav className="flex items-center gap-1 text-sm">
-            {routeInfo.breadcrumbs.map((crumb, i) => (
-              <span key={i} className="flex items-center gap-1">
-                {i > 0 && <ChevronRight size={12} className="text-text-tertiary" />}
-                {crumb.path ? (
-                  <Link
-                    to={crumb.path}
-                    className="text-text-tertiary hover:text-text-secondary transition-colors"
-                  >
-                    {crumb.label}
-                  </Link>
-                ) : (
-                  <span className="text-text-primary font-medium">{crumb.label}</span>
-                )}
-              </span>
-            ))}
-          </nav>
+        <header className="h-12 flex-shrink-0 bg-white/80 backdrop-blur-sm border-b border-surface-border flex items-center justify-between px-4 lg:px-7">
+          <div className="flex items-center gap-3">
+            {/* Hamburger (mobile only) */}
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="p-1 rounded-md text-text-secondary hover:bg-surface-tertiary transition-colors lg:hidden"
+            >
+              <Menu size={20} />
+            </button>
+
+            {/* Breadcrumbs */}
+            <nav className="flex items-center gap-1 text-sm">
+              {routeInfo.breadcrumbs.map((crumb, i) => (
+                <span key={i} className="flex items-center gap-1">
+                  {i > 0 && <ChevronRight size={12} className="text-text-tertiary" />}
+                  {crumb.path ? (
+                    <Link
+                      to={crumb.path}
+                      className="text-text-tertiary hover:text-text-secondary transition-colors"
+                    >
+                      {crumb.label}
+                    </Link>
+                  ) : (
+                    <span className="text-text-primary font-medium">{crumb.label}</span>
+                  )}
+                </span>
+              ))}
+            </nav>
+          </div>
 
           {/* User menu */}
           <div className="relative" ref={menuRef}>
@@ -204,14 +264,14 @@ export default function Layout() {
               <div className="text-right hidden sm:block">
                 <p className="text-xs font-medium text-text-primary leading-none">{user?.full_name}</p>
                 <p className="text-[10px] text-text-tertiary mt-0.5">
-                  {user?.role === "admin" ? "Administrator" : "Recruiter"}
+                  {user?.role === "super_admin" ? "Super Admin" : user?.role === "company_admin" ? "Company Admin" : "Recruiter"}
                 </p>
               </div>
               <div className={`w-7 h-7 rounded-full flex items-center justify-center ${
-                user?.role === "admin" ? "bg-purple-100" : "bg-brand-50"
+                (user?.role === "super_admin" || user?.role === "company_admin") ? "bg-purple-100" : "bg-brand-50"
               }`}>
                 <span className={`text-2xs font-semibold ${
-                  user?.role === "admin" ? "text-purple-600" : "text-brand-500"
+                  (user?.role === "super_admin" || user?.role === "company_admin") ? "text-purple-600" : "text-brand-500"
                 }`}>
                   {user?.full_name?.charAt(0).toUpperCase() || "U"}
                 </span>
@@ -224,13 +284,24 @@ export default function Layout() {
                 <div className="px-3 py-2 border-b border-surface-border mb-1">
                   <p className="text-sm font-medium text-text-primary">{user?.full_name}</p>
                   <p className="text-xs text-text-tertiary">@{user?.username}</p>
+                  {user?.company_name && (
+                    <p className="text-xs text-text-tertiary mt-0.5">{user.company_name}</p>
+                  )}
                   <span className={`inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                    user?.role === "admin" ? "bg-purple-100 text-purple-700" : "bg-blue-50 text-blue-700"
+                    (user?.role === "super_admin" || user?.role === "company_admin") ? "bg-purple-100 text-purple-700" : "bg-blue-50 text-blue-700"
                   }`}>
-                    {user?.role === "admin" && <Shield size={9} />}
-                    {user?.role === "admin" ? "Admin" : "Recruiter"}
+                    {(user?.role === "super_admin" || user?.role === "company_admin") && <Shield size={9} />}
+                    {user?.role === "super_admin" ? "Super Admin" : user?.role === "company_admin" ? "Company Admin" : "Recruiter"}
                   </span>
                 </div>
+                <Link
+                  to="/settings"
+                  onClick={() => setShowUserMenu(false)}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-text-secondary hover:bg-surface-secondary transition-colors"
+                >
+                  <Settings size={14} />
+                  Settings
+                </Link>
                 <button
                   onClick={handleLogout}
                   className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"

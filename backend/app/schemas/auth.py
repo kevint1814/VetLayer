@@ -38,6 +38,8 @@ class UserResponse(BaseModel):
     last_login_at: Optional[datetime] = None
     failed_login_attempts: int = 0
     created_at: datetime
+    company_id: Optional[str] = None
+    company_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -47,7 +49,12 @@ class CreateUserRequest(BaseModel):
     username: str = Field(..., min_length=4, max_length=50, pattern=r"^[a-zA-Z0-9_]+$")
     full_name: str = Field(..., min_length=1, max_length=200)
     password: str = Field(..., min_length=4)
-    role: str = Field(default="recruiter", pattern=r"^(admin|recruiter)$")
+    role: str = Field(default="recruiter", pattern=r"^(super_admin|company_admin|recruiter)$")
+    company_id: Optional[str] = None
+
+
+class UpdateProfileRequest(BaseModel):
+    full_name: Optional[str] = Field(None, min_length=1, max_length=200)
 
 
 class ResetPasswordRequest(BaseModel):
@@ -90,6 +97,22 @@ class PlatformStatsResponse(BaseModel):
     total_analyses: int
     total_batch_runs: int
     recent_logins_7d: int
+
+
+class CompanyResponse(BaseModel):
+    id: str
+    name: str
+    slug: str
+    is_active: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CreateCompanyRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    slug: str = Field(..., min_length=1, max_length=100, pattern=r"^[a-z0-9_-]+$")
 
 
 # Resolve forward references

@@ -16,6 +16,9 @@ from app.core.database import engine, Base, AsyncSessionLocal
 from app.core.security import hash_password
 from app.api.routes import health, candidates, jobs, analysis, auth, admin
 from app.models.user import User
+from app.models.company import Company
+from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 
 # Configure logging so errors show in terminal
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:  %(name)s - %(message)s")
@@ -31,13 +34,14 @@ async def seed_admin():
                 username=settings.ADMIN_USERNAME,
                 full_name=settings.ADMIN_FULL_NAME,
                 hashed_password=hash_password(settings.ADMIN_PASSWORD),
-                role="admin",
+                role="super_admin",
+                company_id=None,  # super_admin has no company
                 is_active=True,
                 force_password_change=True,
             )
             session.add(admin_user)
             await session.commit()
-            logger.info(f"Seeded admin account: {settings.ADMIN_USERNAME}")
+            logger.info(f"Seeded super_admin account: {settings.ADMIN_USERNAME}")
         else:
             logger.info("Users exist, skipping admin seed")
 
@@ -65,6 +69,18 @@ async def lifespan(app: FastAPI):
                 "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS processing_status VARCHAR(20) DEFAULT 'ready'"
             )
         )
+        # Multi-tenancy columns (if migration hasn't run yet)
+        # Safe: create_all already created tables with these columns on fresh DB.
+        # On existing DB, migration 005 handles this. These are just a safety net.
+        try:
+            for tbl in ["users", "candidates", "jobs", "analysis_results", "batch_analyses", "skills", "audit_logs"]:
+                await conn.execute(
+                    __import__("sqlalchemy").text(
+                        f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies(id)"
+                    )
+                )
+        except Exception as e:
+            logger.warning(f"Multi-tenancy column setup (non-fatal): {e}")
     print(f"✅ Database tables ready")
 
     # Seed admin account
@@ -85,14 +101,24 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ── Middleware stack ──────────────────────────────────────────────────
+# Starlette processes middleware in reverse registration order (last added = outermost).
+# Execution order: SecurityHeaders → RateLimit → CORS → route handler
+
 # CORS — allow the React dev server during development
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
 )
+
+# Rate limiting — protect auth, batch, and upload endpoints
+app.add_middleware(RateLimitMiddleware)
+
+# Security headers — added to every response
+app.add_middleware(SecurityHeadersMiddleware)
 
 # ── Global error handler so 500s show in terminal ─────────────────
 @app.exception_handler(Exception)

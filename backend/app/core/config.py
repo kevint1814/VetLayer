@@ -57,14 +57,42 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# ── Startup warnings ────────────────────────────────────────────────
-if settings.SECRET_KEY == "change-me-in-production":
-    _config_logger.warning(
-        "⚠️  SECRET_KEY is still the default placeholder. "
-        "Set a strong random value in .env before deploying to production."
-    )
-if settings.ADMIN_PASSWORD == "Admin@123":
-    _config_logger.warning(
-        "⚠️  ADMIN_PASSWORD is still the default. "
-        "Set a strong password in .env before deploying to production."
-    )
+# ── Startup safety checks ───────────────────────────────────────────
+# In DEBUG mode: warn about insecure defaults so devs can iterate fast.
+# In production (DEBUG=False): refuse to start with default secrets.
+
+_INSECURE_SECRET_KEY = settings.SECRET_KEY == "change-me-in-production"
+_INSECURE_ADMIN_PW = settings.ADMIN_PASSWORD == "Admin@123"
+
+if settings.DEBUG:
+    # Dev mode — warn only
+    if _INSECURE_SECRET_KEY:
+        _config_logger.warning(
+            "⚠️  SECRET_KEY is the default placeholder. "
+            "Set a strong random value in .env before deploying to production."
+        )
+    if _INSECURE_ADMIN_PW:
+        _config_logger.warning(
+            "⚠️  ADMIN_PASSWORD is the default. "
+            "Set a strong password in .env before deploying to production."
+        )
+else:
+    # Production mode — block startup with insecure defaults
+    _fatal_errors = []
+    if _INSECURE_SECRET_KEY:
+        _fatal_errors.append(
+            "SECRET_KEY is still 'change-me-in-production'. "
+            "Set a cryptographically random value (e.g. python -c \"import secrets; print(secrets.token_urlsafe(64))\")."
+        )
+    if _INSECURE_ADMIN_PW:
+        _fatal_errors.append(
+            "ADMIN_PASSWORD is still 'Admin@123'. Set a strong password in .env."
+        )
+    if _fatal_errors:
+        for err in _fatal_errors:
+            _config_logger.critical(f"🛑 FATAL: {err}")
+        raise SystemExit(
+            "\n🛑 VetLayer refused to start: insecure default secrets detected.\n"
+            "Either set proper values in .env or enable DEBUG=true for development.\n"
+            "Details:\n  - " + "\n  - ".join(_fatal_errors)
+        )

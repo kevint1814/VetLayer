@@ -15,7 +15,7 @@ from app.models.job import Job
 from app.schemas.job import JobResponse, JobCreate, JobUpdate, JobList
 from app.schemas.bulk import BulkDeleteRequest, BulkDeleteResponse
 from app.services.job_parser import parse_job_requirements
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_company, get_user_company_id
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -41,17 +41,20 @@ async def list_jobs(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """List all job descriptions."""
+    """List all job descriptions (company-scoped, super_admin sees all)."""
+    company_id = get_user_company_id(user)
     query = select(Job).offset(skip).limit(limit).order_by(Job.created_at.desc())
+    count_query = select(func.count()).select_from(Job)
+    if company_id:
+        query = query.where(Job.company_id == company_id)
+        count_query = count_query.where(Job.company_id == company_id)
     if search:
         query = query.where(Job.title.ilike(f"%{search}%"))
+        count_query = count_query.where(Job.title.ilike(f"%{search}%"))
+
     result = await db.execute(query)
     jobs = result.scalars().all()
 
-    # Count query
-    count_query = select(func.count()).select_from(Job)
-    if search:
-        count_query = count_query.where(Job.title.ilike(f"%{search}%"))
     count_result = await db.execute(count_query)
     total = count_result.scalar()
 
@@ -60,18 +63,22 @@ async def list_jobs(
 
 @router.get("/{job_id}", response_model=JobResponse)
 async def get_job(job_id: uuid.UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    """Get a single job by ID."""
+    """Get a single job by ID (company-scoped, super_admin sees all)."""
+    company_id = get_user_company_id(user)
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
-    if not job:
+    if not job or (company_id and job.company_id != company_id):
         raise HTTPException(status_code=404, detail="Job not found")
     return job
 
 
 @router.post("/", response_model=JobResponse, status_code=201)
 async def create_job(data: JobCreate, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    """Create a new job description with manually specified skills."""
-    job = Job(**data.model_dump())
+    """Create a new job description with manually specified skills (company-scoped)."""
+    company_id = require_company(user)
+    job_data = data.model_dump()
+    job_data['company_id'] = company_id
+    job = Job(**job_data)
     db.add(job)
     await db.flush()
     await db.refresh(job)
@@ -82,8 +89,9 @@ async def create_job(data: JobCreate, db: AsyncSession = Depends(get_db), user: 
 async def create_job_smart(data: SmartJobCreate, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     """
     Smart job creation — paste raw requirements text from a career page
-    and VetLayer uses AI to extract structured skill requirements.
+    and VetLayer uses AI to extract structured skill requirements. (company-scoped)
     """
+    company_id = require_company(user)
     # If raw requirements text is provided, parse it with LLM
     required_skills = []
     preferred_skills = []
@@ -115,6 +123,7 @@ async def create_job_smart(data: SmartJobCreate, db: AsyncSession = Depends(get_
         required_skills=required_skills if required_skills else None,
         preferred_skills=preferred_skills if preferred_skills else None,
         experience_range=experience_range,
+        company_id=company_id,
     )
     db.add(job)
     await db.flush()
@@ -129,10 +138,11 @@ async def create_job_smart(data: SmartJobCreate, db: AsyncSession = Depends(get_
 
 @router.put("/{job_id}", response_model=JobResponse)
 async def update_job(job_id: uuid.UUID, data: JobUpdate, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    """Update a job description. Only provided fields are changed."""
+    """Update a job description. Only provided fields are changed (company-scoped)."""
+    company_id = require_company(user)
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
-    if not job:
+    if not job or job.company_id != company_id:
         raise HTTPException(status_code=404, detail="Job not found")
 
     update_data = data.model_dump(exclude_unset=True)
@@ -153,12 +163,13 @@ class SmartReParseRequest(BaseModel):
 @router.post("/{job_id}/reparse", response_model=JobResponse)
 async def reparse_job_skills(job_id: uuid.UUID, data: SmartReParseRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     """
-    Re-parse skills from raw requirements text for an existing job.
+    Re-parse skills from raw requirements text for an existing job (company-scoped).
     Replaces the current required_skills and preferred_skills.
     """
+    company_id = require_company(user)
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
-    if not job:
+    if not job or job.company_id != company_id:
         raise HTTPException(status_code=404, detail="Job not found")
 
     if not data.raw_requirements.strip():
@@ -187,17 +198,19 @@ async def reparse_job_skills(job_id: uuid.UUID, data: SmartReParseRequest, db: A
 
 @router.delete("/{job_id}", status_code=204)
 async def delete_job(job_id: uuid.UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    """Delete a job description."""
+    """Delete a job description (company-scoped)."""
+    company_id = require_company(user)
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
-    if not job:
+    if not job or job.company_id != company_id:
         raise HTTPException(status_code=404, detail="Job not found")
     await db.delete(job)
 
 
 @router.post("/delete", response_model=BulkDeleteResponse)
 async def bulk_delete_jobs(request: BulkDeleteRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    """Bulk delete jobs by ID list. Cascade deletes associated analyses."""
+    """Bulk delete jobs by ID list. Cascade deletes associated analyses (company-scoped)."""
+    company_id = require_company(user)
     deleted = 0
     failed_ids = []
     errors = {}
@@ -206,7 +219,7 @@ async def bulk_delete_jobs(request: BulkDeleteRequest, db: AsyncSession = Depend
         try:
             result = await db.execute(select(Job).where(Job.id == jid))
             job = result.scalar_one_or_none()
-            if job:
+            if job and job.company_id == company_id:
                 await db.delete(job)
                 deleted += 1
             else:

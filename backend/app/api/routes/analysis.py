@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.config import settings
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_company, get_user_company_id
 from app.models.user import User
 from app.models.candidate import Candidate
 from app.models.job import Job
@@ -94,21 +94,22 @@ async def trigger_analysis(
     user: User = Depends(get_current_user),
 ):
     """
-    Trigger a full VetLayer analysis for a candidate against a job.
+    Trigger a full VetLayer analysis for a candidate against a job (company-scoped).
     Runs the Skill > Evidence > Depth pipeline, then scores against job requirements.
     """
+    company_id = require_company(user)
     start_time = time.time()
 
     # Fetch candidate
     result = await db.execute(select(Candidate).where(Candidate.id == request.candidate_id))
     candidate = result.scalar_one_or_none()
-    if not candidate:
+    if not candidate or candidate.company_id != company_id:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
     # Fetch job
     result = await db.execute(select(Job).where(Job.id == request.job_id))
     job = result.scalar_one_or_none()
-    if not job:
+    if not job or job.company_id != company_id:
         raise HTTPException(status_code=404, detail="Job not found")
 
     if not candidate.resume_parsed:
@@ -150,6 +151,7 @@ async def trigger_analysis(
     for assessment in [a for a in assessments if a.estimated_depth > 0]:
         skill = Skill(
             candidate_id=candidate.id,
+            company_id=candidate.company_id,
             name=assessment.name,
             category=assessment.category,
             estimated_depth=assessment.estimated_depth,
@@ -203,6 +205,7 @@ async def trigger_analysis(
     analysis = AnalysisResult(
         candidate_id=candidate.id,
         job_id=job.id,
+        company_id=candidate.company_id,
         overall_score=scores["overall"],
         skill_match_score=scores["skill_match"],
         experience_score=scores["experience"],
@@ -271,6 +274,8 @@ async def trigger_batch_analysis(
     Kick off batch analysis: N candidates x M jobs.
     Returns immediately with a batch_id. Poll /batch/{batch_id} for progress.
     """
+    company_id = require_company(user)
+
     if not request.candidate_ids or not request.job_ids:
         raise HTTPException(status_code=400, detail="Must provide at least one candidate and one job")
     if len(request.candidate_ids) * len(request.job_ids) > 200:
@@ -280,6 +285,7 @@ async def trigger_batch_analysis(
         candidate_ids=request.candidate_ids,
         job_ids=request.job_ids,
         force_reanalyze=request.force_reanalyze,
+        company_id=company_id,
     )
     state = get_batch_state(batch_id)
     return BatchAnalysisStatus(
@@ -300,12 +306,14 @@ async def list_batches(user: User = Depends(get_current_user)):
     List all batch analyses (recent first).
     Returns from DB for persistent history, merged with in-memory for live batches.
     """
-    saved = await load_saved_batches()
+    company_id = get_user_company_id(user)
+    cid_str = str(company_id) if company_id else None
+    saved = await load_saved_batches(company_id=cid_str)
     # Merge: in-memory processing batches that aren't finalized in DB yet
     saved_ids = {b["batch_id"] for b in saved}
     live_states = list_batch_states()
     for s in reversed(live_states):
-        if s.batch_id not in saved_ids:
+        if s.batch_id not in saved_ids and (not cid_str or s.company_id == cid_str):
             saved.insert(0, {
                 "batch_id": s.batch_id,
                 "status": s.status,
@@ -333,9 +341,12 @@ async def get_batch_progress(batch_id: str, user: User = Depends(get_current_use
     Get batch analysis progress or saved results.
     First checks in-memory (for live polling), then falls back to DB (for history).
     """
+    company_id = get_user_company_id(user)
+    cid_str = str(company_id) if company_id else None
+
     # Check in-memory first (for active / recently completed batches)
     state = get_batch_state(batch_id)
-    if state:
+    if state and (not cid_str or state.company_id == cid_str):
         elapsed = int((time.time() - state.started_at) * 1000) if state.status == "processing" else state.elapsed_ms
 
         return {
@@ -371,8 +382,8 @@ async def get_batch_progress(batch_id: str, user: User = Depends(get_current_use
             "completed_at": None,
         }
 
-    # Fall back to DB
-    saved = await load_saved_batch(batch_id)
+    # Fall back to DB (filtered by company)
+    saved = await load_saved_batch(batch_id, company_id=cid_str)
     if not saved:
         raise HTTPException(status_code=404, detail="Batch not found")
     return saved
@@ -381,7 +392,8 @@ async def get_batch_progress(batch_id: str, user: User = Depends(get_current_use
 @router.delete("/batch/{batch_id}", status_code=204)
 async def delete_batch(batch_id: str, user: User = Depends(get_current_user)):
     """Delete a saved batch from history."""
-    deleted = await delete_saved_batch(batch_id)
+    company_id = get_user_company_id(user)
+    deleted = await delete_saved_batch(batch_id, company_id=str(company_id) if company_id else None)
     if not deleted:
         raise HTTPException(status_code=404, detail="Batch not found")
     # Also remove from in-memory if present
@@ -404,12 +416,15 @@ async def export_batch_brief(
     from fastapi.responses import Response
     from app.services.pdf_batch_brief import generate_batch_brief_pdf
 
+    company_id = get_user_company_id(user)
+    cid_str = str(company_id) if company_id else None
+
     if not job_id:
         raise HTTPException(status_code=400, detail="job_id query parameter is required")
 
-    # Load batch data (try in-memory first, then DB)
+    # Load batch data (try in-memory first, then DB) — company-scoped
     state = get_batch_state(batch_id)
-    if state:
+    if state and (not cid_str or state.company_id == cid_str):
         batch_data = {
             "batch_id": state.batch_id,
             "status": state.status,
@@ -421,7 +436,7 @@ async def export_batch_brief(
             "results": [r.to_dict() for r in state.results],
         }
     else:
-        batch_data = await load_saved_batch(batch_id)
+        batch_data = await load_saved_batch(batch_id, company_id=cid_str)
         if not batch_data:
             raise HTTPException(status_code=404, detail="Batch not found")
 

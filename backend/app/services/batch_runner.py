@@ -79,10 +79,30 @@ class BatchState:
     candidate_ids: List[str] = field(default_factory=list)
     job_ids: List[str] = field(default_factory=list)
     job_titles: List[str] = field(default_factory=list)
+    company_id: str = ""
 
 
 # Global store: batch_id → BatchState (for live polling)
+# Capped at MAX_STORED_BATCHES to prevent unbounded memory growth.
 _batch_store: Dict[str, BatchState] = {}
+MAX_STORED_BATCHES = 50
+
+
+def _evict_old_batches():
+    """Remove oldest completed batches when the store exceeds the cap."""
+    if len(_batch_store) <= MAX_STORED_BATCHES:
+        return
+    # Sort by start time, keep the newest MAX_STORED_BATCHES
+    sorted_ids = sorted(
+        _batch_store.keys(),
+        key=lambda bid: _batch_store[bid].started_at,
+    )
+    # Only evict completed/failed batches (never evict one that's still processing)
+    for bid in sorted_ids:
+        if len(_batch_store) <= MAX_STORED_BATCHES:
+            break
+        if _batch_store[bid].status != "processing":
+            del _batch_store[bid]
 
 
 def get_batch_state(batch_id: str) -> Optional[BatchState]:
@@ -102,6 +122,7 @@ async def _create_batch_record(state: BatchState):
     async with AsyncSessionLocal() as db:
         batch = BatchAnalysis(
             batch_id=state.batch_id,
+            company_id=state.company_id or None,
             candidate_ids=state.candidate_ids,
             job_ids=state.job_ids,
             status="processing",
@@ -151,12 +172,13 @@ async def _finalize_batch_record(state: BatchState):
         logger.info(f"Batch {state.batch_id} finalized in DB")
 
 
-async def load_saved_batches() -> List[dict]:
-    """Load all saved batches from DB, most recent first."""
+async def load_saved_batches(company_id: str = None) -> List[dict]:
+    """Load saved batches from DB, most recent first. Filtered by company if provided."""
     async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            select(BatchAnalysis).order_by(BatchAnalysis.created_at.desc())
-        )
+        query = select(BatchAnalysis).order_by(BatchAnalysis.created_at.desc())
+        if company_id:
+            query = query.where(BatchAnalysis.company_id == company_id)
+        result = await db.execute(query)
         batches = result.scalars().all()
         return [
             {
@@ -181,12 +203,13 @@ async def load_saved_batches() -> List[dict]:
         ]
 
 
-async def load_saved_batch(batch_id: str) -> Optional[dict]:
-    """Load a single saved batch from DB."""
+async def load_saved_batch(batch_id: str, company_id: str = None) -> Optional[dict]:
+    """Load a single saved batch from DB. Verifies company if provided."""
     async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            select(BatchAnalysis).where(BatchAnalysis.batch_id == batch_id)
-        )
+        query = select(BatchAnalysis).where(BatchAnalysis.batch_id == batch_id)
+        if company_id:
+            query = query.where(BatchAnalysis.company_id == company_id)
+        result = await db.execute(query)
         b = result.scalars().first()
         if not b:
             return None
@@ -210,13 +233,14 @@ async def load_saved_batch(batch_id: str) -> Optional[dict]:
         }
 
 
-async def delete_saved_batch(batch_id: str) -> bool:
-    """Delete a saved batch from DB."""
+async def delete_saved_batch(batch_id: str, company_id: str = None) -> bool:
+    """Delete a saved batch from DB. Verifies company if provided."""
     from sqlalchemy import delete as sql_delete
     async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            sql_delete(BatchAnalysis).where(BatchAnalysis.batch_id == batch_id)
-        )
+        query = sql_delete(BatchAnalysis).where(BatchAnalysis.batch_id == batch_id)
+        if company_id:
+            query = query.where(BatchAnalysis.company_id == company_id)
+        result = await db.execute(query)
         await db.commit()
         return result.rowcount > 0
 
@@ -229,6 +253,7 @@ async def run_batch_analysis(
     candidate_ids: List[uuid.UUID],
     job_ids: List[uuid.UUID],
     force_reanalyze: bool = False,
+    company_id: uuid.UUID = None,
 ) -> str:
     """
     Launch a batch analysis. Returns a batch_id immediately.
@@ -246,6 +271,9 @@ async def run_batch_analysis(
         )
         job_titles = [row[0] for row in result.all()]
 
+    # Evict old completed batches to prevent unbounded memory growth
+    _evict_old_batches()
+
     state = BatchState(
         batch_id=batch_id,
         total=total_pairs,
@@ -253,6 +281,7 @@ async def run_batch_analysis(
         candidate_ids=[str(cid) for cid in candidate_ids],
         job_ids=[str(jid) for jid in job_ids],
         job_titles=job_titles,
+        company_id=str(company_id) if company_id else "",
     )
     _batch_store[batch_id] = state
 
@@ -269,7 +298,11 @@ async def run_batch_analysis(
             logger.error(f"Batch {batch_id} task failed with unhandled error: {exc}", exc_info=exc)
             # Mark batch as failed so polling clients get a terminal state
             if batch_id in _batch_store:
-                _batch_store[batch_id].status = "failed"
+                s = _batch_store[batch_id]
+                s.status = "failed"
+                s.elapsed_ms = int((time.time() - s.started_at) * 1000)
+                # Persist failure to DB so it shows in history after restart
+                asyncio.ensure_future(_finalize_batch_record(s))
 
     task.add_done_callback(_on_batch_done)
 
@@ -315,6 +348,31 @@ async def _execute_batch(
                 pair_key = (str(a.candidate_id), str(a.job_id))
                 existing_pairs.add(pair_key)
                 existing_analyses[pair_key] = a
+
+    # ── Pre-parse job skills (once per job, not once per pair) ──────
+    # This avoids redundant LLM calls when the same job is analyzed
+    # against multiple candidates. Saves 5-15 seconds per extra candidate.
+    # Each job gets its own session so they can run concurrently.
+    job_parsed_skills: Dict[str, tuple] = {}  # jid_str -> (required, preferred)
+
+    async def _pre_parse_one_job(jid_str: str):
+        from app.api.routes.analysis import _ensure_parsed_skills
+        try:
+            async with AsyncSessionLocal() as db:
+                job_in_session = await db.get(Job, uuid.UUID(jid_str))
+                if job_in_session:
+                    req, pref = await _ensure_parsed_skills(job_in_session, db)
+                    job_parsed_skills[jid_str] = (req, pref)
+                    await db.commit()
+        except Exception as e:
+            logger.warning(f"Pre-parse skills failed for job {jid_str}: {e}")
+
+    # Run all job pre-parses concurrently (not sequentially)
+    if jobs:
+        await asyncio.gather(
+            *[_pre_parse_one_job(jid_str) for jid_str in jobs.keys()],
+            return_exceptions=True,
+        )
 
     # ── Build task list ──────────────────────────────────────────────
     tasks = []
@@ -362,8 +420,10 @@ async def _execute_batch(
 
             # Schedule for pipeline execution — pass names/titles for error
             # reporting, but NOT the ORM objects (they're detached from session)
+            pre_parsed = job_parsed_skills.get(jid_str)
             tasks.append(_run_single_pair(
-                semaphore, state, candidate.name, job.title, cid_str, jid_str
+                semaphore, state, candidate.name, job.title, cid_str, jid_str,
+                pre_parsed_skills=pre_parsed,
             ))
 
     # ── Execute all pipeline tasks concurrently ─────────────────────
@@ -398,6 +458,7 @@ async def _run_single_pair(
     job_title: str,
     cid_str: str,
     jid_str: str,
+    pre_parsed_skills: tuple = None,
 ):
     """Run a single (candidate, job) pipeline under the semaphore."""
     async with semaphore:
@@ -420,8 +481,12 @@ async def _run_single_pair(
                 if not candidate or not job:
                     raise ValueError("Candidate or job not found in DB")
 
-                # Ensure job has parsed skills
-                required_skills, preferred_skills = await _ensure_parsed_skills(job, db)
+                # Use pre-parsed skills if available (parsed once per job in
+                # _execute_batch), otherwise fall back to parsing here
+                if pre_parsed_skills:
+                    required_skills, preferred_skills = pre_parsed_skills
+                else:
+                    required_skills, preferred_skills = await _ensure_parsed_skills(job, db)
 
                 resume_parsed = candidate.resume_parsed
                 if not resume_parsed:
@@ -457,6 +522,7 @@ async def _run_single_pair(
                 for assessment in [a for a in assessments if a.estimated_depth > 0]:
                     skill_obj = Skill(
                         candidate_id=candidate.id,
+                        company_id=candidate.company_id,
                         name=assessment.name,
                         category=assessment.category,
                         estimated_depth=assessment.estimated_depth,
@@ -506,6 +572,7 @@ async def _run_single_pair(
                 analysis = AnalysisResult(
                     candidate_id=candidate.id,
                     job_id=job.id,
+                    company_id=candidate.company_id,
                     overall_score=scores["overall"],
                     skill_match_score=scores["skill_match"],
                     experience_score=scores["experience"],

@@ -659,6 +659,50 @@ interface DossierProps {
   profile?: IntelligenceProfile;
 }
 
+/**
+ * Condense raw bullet-point descriptions into a recruiter-friendly summary.
+ * Takes the first N meaningful lines, strips bullet markers, joins cleanly.
+ */
+function condenseBullets(text: string, maxLines = 3): { condensed: string; isTruncated: boolean } {
+  if (!text) return { condensed: "", isTruncated: false };
+  // Split on newlines and bullet markers
+  const lines = text
+    .split(/\n|•|·/)
+    .map(l => l.replace(/^[\s\-–—*]+/, "").trim())
+    .filter(l => l.length > 15); // Skip very short fragments
+  if (lines.length <= maxLines) {
+    return { condensed: lines.map(l => `• ${l}`).join("\n"), isTruncated: false };
+  }
+  return {
+    condensed: lines.slice(0, maxLines).map(l => `• ${l}`).join("\n"),
+    isTruncated: true,
+  };
+}
+
+/** Renders text with truncation + "Show more" toggle */
+function TruncatedDescription({ text, maxLines = 3 }: { text: string; maxLines?: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const { condensed, isTruncated } = condenseBullets(text, maxLines);
+
+  if (!text) return null;
+
+  return (
+    <div>
+      <p className="text-xs text-text-tertiary mt-1.5 leading-relaxed whitespace-pre-line">
+        {expanded ? text : condensed}
+      </p>
+      {isTruncated && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-2xs text-brand-500 hover:text-brand-600 font-medium mt-1 transition-colors"
+        >
+          {expanded ? "Show less" : "Show full details"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ProfessionalDossier({ parsed, candidate, profile }: DossierProps) {
   const [timelineExpanded, setTimelineExpanded] = useState(false);
 
@@ -906,7 +950,7 @@ function ProfessionalDossier({ parsed, candidate, profile }: DossierProps) {
                     </p>
                   )}
                   {exp.description && (
-                    <p className="text-xs text-text-tertiary mt-1.5 leading-relaxed whitespace-pre-line">{exp.description}</p>
+                    <TruncatedDescription text={exp.description} maxLines={3} />
                   )}
                   {exp.technologies && exp.technologies.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-2">
@@ -1056,7 +1100,7 @@ function ProfessionalDossier({ parsed, candidate, profile }: DossierProps) {
                     )}
                   </div>
                   {proj.description && (
-                    <p className="text-xs text-text-tertiary mt-1 leading-relaxed">{proj.description}</p>
+                    <TruncatedDescription text={proj.description} maxLines={2} />
                   )}
                   {proj.technologies && proj.technologies.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-2">

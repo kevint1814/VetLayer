@@ -13,7 +13,7 @@ from sqlalchemy import select, func
 
 from app.core.database import get_db, AsyncSessionLocal
 from app.core.config import settings
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_company, get_user_company_id
 from app.models.candidate import Candidate
 from app.models.user import User
 from app.schemas.candidate import CandidateResponse, CandidateCreate, CandidateList
@@ -130,17 +130,20 @@ async def list_candidates(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """List all candidates with optional search."""
+    """List all candidates with optional search (company-scoped, super_admin sees all)."""
+    company_id = get_user_company_id(user)
     query = select(Candidate).offset(skip).limit(limit).order_by(Candidate.created_at.desc())
+    count_query = select(func.count()).select_from(Candidate)
+    if company_id:
+        query = query.where(Candidate.company_id == company_id)
+        count_query = count_query.where(Candidate.company_id == company_id)
     if search:
         query = query.where(Candidate.name.ilike(f"%{search}%"))
+        count_query = count_query.where(Candidate.name.ilike(f"%{search}%"))
+
     result = await db.execute(query)
     candidates = result.scalars().all()
 
-    # Count query
-    count_query = select(func.count()).select_from(Candidate)
-    if search:
-        count_query = count_query.where(Candidate.name.ilike(f"%{search}%"))
     count_result = await db.execute(count_query)
     total = count_result.scalar()
 
@@ -149,18 +152,22 @@ async def list_candidates(
 
 @router.get("/{candidate_id}", response_model=CandidateResponse)
 async def get_candidate(candidate_id: uuid.UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    """Get a single candidate by ID."""
+    """Get a single candidate by ID (company-scoped, super_admin sees all)."""
+    company_id = get_user_company_id(user)
     result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
     candidate = result.scalar_one_or_none()
-    if not candidate:
+    if not candidate or (company_id and candidate.company_id != company_id):
         raise HTTPException(status_code=404, detail="Candidate not found")
     return candidate
 
 
 @router.post("/", response_model=CandidateResponse, status_code=201)
 async def create_candidate(data: CandidateCreate, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    """Create a candidate record (without resume upload)."""
-    candidate = Candidate(**data.model_dump())
+    """Create a candidate record (without resume upload, company-scoped)."""
+    company_id = require_company(user)
+    candidate_data = data.model_dump()
+    candidate_data['company_id'] = company_id
+    candidate = Candidate(**candidate_data)
     db.add(candidate)
     await db.flush()
     await db.refresh(candidate)
@@ -175,8 +182,9 @@ async def upload_resume(
 ):
     """
     Upload a resume file → extract text + quick parse (instant) → return with real data.
-    Full LLM enrichment + intelligence profile runs in background.
+    Full LLM enrichment + intelligence profile runs in background. (company-scoped)
     """
+    company_id = require_company(user)
     if not file.filename.endswith((".pdf", ".docx", ".txt")):
         raise HTTPException(status_code=400, detail="Supported formats: PDF, DOCX, TXT")
 
@@ -193,6 +201,7 @@ async def upload_resume(
         resume_filename=file.filename,
         processing_status="processing",
         source="upload",
+        company_id=company_id,
     )
     db.add(candidate)
     await db.flush()
@@ -208,17 +217,19 @@ async def upload_resume(
 
 @router.delete("/{candidate_id}", status_code=204)
 async def delete_candidate(candidate_id: uuid.UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    """Delete a candidate and all associated data."""
+    """Delete a candidate and all associated data (company-scoped)."""
+    company_id = require_company(user)
     result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
     candidate = result.scalar_one_or_none()
-    if not candidate:
+    if not candidate or candidate.company_id != company_id:
         raise HTTPException(status_code=404, detail="Candidate not found")
     await db.delete(candidate)
 
 
 @router.post("/delete", response_model=BulkDeleteResponse)
 async def bulk_delete_candidates(request: BulkDeleteRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    """Bulk delete candidates by ID list. Cascade deletes skills + analyses."""
+    """Bulk delete candidates by ID list. Cascade deletes skills + analyses (company-scoped)."""
+    company_id = require_company(user)
     deleted = 0
     failed_ids = []
     errors = {}
@@ -227,7 +238,7 @@ async def bulk_delete_candidates(request: BulkDeleteRequest, db: AsyncSession = 
         try:
             result = await db.execute(select(Candidate).where(Candidate.id == cid))
             candidate = result.scalar_one_or_none()
-            if candidate:
+            if candidate and candidate.company_id == company_id:
                 await db.delete(candidate)
                 deleted += 1
             else:
@@ -250,11 +261,12 @@ async def bulk_upload_resumes(
     user: User = Depends(get_current_user),
 ):
     """
-    Upload multiple resumes at once.
+    Upload multiple resumes at once (company-scoped).
     Text extraction + quick parse runs inline (fast — <1s per file).
     Returns candidates with real names/emails immediately.
     Full LLM enrichment + intelligence runs in background.
     """
+    company_id = require_company(user)
     import time as _time
     t0 = _time.perf_counter()
 
@@ -280,6 +292,7 @@ async def bulk_upload_resumes(
             resume_filename=fname,
             processing_status="processing",
             source="upload",
+            company_id=company_id,
         )
         db.add(candidate)
         await db.flush()
@@ -313,10 +326,11 @@ async def export_intelligence_brief(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Export candidate intelligence brief as a premium PDF."""
+    """Export candidate intelligence brief as a premium PDF (company-scoped, super_admin sees all)."""
+    company_id = get_user_company_id(current_user)
     result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
     candidate = result.scalar_one_or_none()
-    if not candidate:
+    if not candidate or (company_id and candidate.company_id != company_id):
         raise HTTPException(status_code=404, detail="Candidate not found")
 
     parsed = candidate.resume_parsed or {}

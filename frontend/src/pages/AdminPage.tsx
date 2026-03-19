@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "../contexts/AuthContext";
 import { adminApi } from "../services/api";
 import {
   Users, Activity, BarChart3, Plus, Search, RotateCcw, UserX, UserCheck,
-  Key, AlertCircle, CheckCircle2, Loader2, Eye, EyeOff, X, Shield, Clock,
+  Key, AlertCircle, CheckCircle2, Loader2, Eye, EyeOff, X, Shield, Clock, Building2,
 } from "lucide-react";
 
 /** Extract a readable error message from Axios errors (handles 422 validation arrays). */
@@ -26,6 +27,8 @@ interface UserRecord {
   last_login_at: string | null;
   failed_login_attempts: number;
   created_at: string;
+  company_id: string | null;
+  company_name: string | null;
 }
 
 interface AuditEntry {
@@ -49,14 +52,26 @@ interface PlatformStats {
   recent_logins_7d: number;
 }
 
-type Tab = "users" | "activity" | "stats";
+interface Company {
+  id: string;
+  name: string;
+  slug: string;
+  is_active: boolean;
+  user_count: number;
+  created_at: string;
+}
+
+type Tab = "users" | "activity" | "companies" | "stats";
 
 export default function AdminPage() {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
   const [activeTab, setActiveTab] = useState<Tab>("users");
 
   const tabs = [
     { id: "users" as Tab, label: "User Management", icon: Users },
     { id: "activity" as Tab, label: "Activity Log", icon: Activity },
+    ...(isSuperAdmin ? [{ id: "companies" as Tab, label: "Companies", icon: Building2 }] : []),
     { id: "stats" as Tab, label: "Platform Stats", icon: BarChart3 },
   ];
 
@@ -87,6 +102,7 @@ export default function AdminPage() {
 
       {activeTab === "users" && <UserManagement />}
       {activeTab === "activity" && <ActivityLog />}
+      {activeTab === "companies" && isSuperAdmin && <CompanyManagement />}
       {activeTab === "stats" && <StatsPanel />}
     </div>
   );
@@ -105,6 +121,7 @@ function UserManagement() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [resetTarget, setResetTarget] = useState<UserRecord | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -114,13 +131,14 @@ function UserManagement() {
       if (filter === "active") params.status = "active";
       if (filter === "inactive") params.status = "inactive";
       if (filter === "pending") params.status = "pending";
-      if (filter === "admin") params.role = "admin";
+      if (filter === "super_admin") params.role = "super_admin";
+      if (filter === "company_admin") params.role = "company_admin";
       if (filter === "recruiter") params.role = "recruiter";
       const res = await adminApi.listUsers(params);
       setUsers(res.data.users);
       setTotal(res.data.total);
-    } catch {
-      // handle error
+    } catch (err: any) {
+      setActionError(extractError(err, "Failed to load users."));
     } finally {
       setLoading(false);
     }
@@ -130,19 +148,25 @@ function UserManagement() {
 
   const handleDeactivate = async (u: UserRecord) => {
     setActionLoading(u.id);
+    setActionError(null);
     try {
       await adminApi.deactivateUser(u.id);
       await fetchUsers();
-    } catch { /* handle */ }
+    } catch (err: any) {
+      setActionError(extractError(err, `Failed to deactivate ${u.full_name}.`));
+    }
     setActionLoading(null);
   };
 
   const handleReactivate = async (u: UserRecord) => {
     setActionLoading(u.id);
+    setActionError(null);
     try {
       await adminApi.reactivateUser(u.id);
       await fetchUsers();
-    } catch { /* handle */ }
+    } catch (err: any) {
+      setActionError(extractError(err, `Failed to reactivate ${u.full_name}.`));
+    }
     setActionLoading(null);
   };
 
@@ -155,6 +179,19 @@ function UserManagement() {
 
   return (
     <>
+      {/* Action error banner */}
+      {actionError && (
+        <div className="flex items-center justify-between gap-2 p-3 mb-4 rounded-lg bg-red-50 border border-red-200">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
+            <p className="text-sm text-red-700">{actionError}</p>
+          </div>
+          <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-600 p-0.5">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Search + filters + create button */}
       <div className="flex items-center gap-3 mb-5">
         <div className="relative flex-1 max-w-xs">
@@ -176,7 +213,8 @@ function UserManagement() {
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
           <option value="pending">Pending First Login</option>
-          <option value="admin">Admins</option>
+          <option value="super_admin">Super Admins</option>
+          <option value="company_admin">Company Admins</option>
           <option value="recruiter">Recruiters</option>
         </select>
         <button onClick={() => setShowCreateModal(true)} className="btn-primary flex items-center gap-1.5">
@@ -210,24 +248,27 @@ function UserManagement() {
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-3">
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${
-                        u.role === "admin" ? "bg-purple-100 text-purple-600" : "bg-brand-50 text-brand-500"
+                        (u.role === "super_admin" || u.role === "company_admin") ? "bg-purple-100 text-purple-600" : "bg-brand-50 text-brand-500"
                       }`}>
                         {u.full_name.charAt(0).toUpperCase()}
                       </div>
                       <div>
                         <p className="text-sm font-medium text-text-primary">{u.full_name}</p>
                         <p className="text-xs text-text-tertiary">@{u.username}</p>
+                        {u.company_name && (
+                          <p className="text-xs text-text-tertiary">{u.company_name}</p>
+                        )}
                       </div>
                     </div>
                   </td>
                   <td className="px-5 py-3.5">
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                      u.role === "admin"
+                      (u.role === "super_admin" || u.role === "company_admin")
                         ? "bg-purple-100 text-purple-700"
                         : "bg-blue-50 text-blue-700"
                     }`}>
-                      {u.role === "admin" && <Shield size={10} />}
-                      {u.role.charAt(0).toUpperCase() + u.role.slice(1)}
+                      {(u.role === "super_admin" || u.role === "company_admin") && <Shield size={10} />}
+                      {u.role === "super_admin" ? "Super Admin" : u.role === "company_admin" ? "Company Admin" : "Recruiter"}
                     </span>
                   </td>
                   <td className="px-5 py-3.5">
@@ -298,14 +339,28 @@ function UserManagement() {
 // ── Create User Modal ───────────────────────────────────────────────
 
 function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const { user: currentUser } = useAuth();
+  const isSuperAdmin = currentUser?.role === "super_admin";
   const [username, setUsername] = useState("");
   const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("recruiter");
+  const [companyId, setCompanyId] = useState<string>(currentUser?.company_id || "");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null);
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
+
+  // Load companies for super_admin dropdown
+  useEffect(() => {
+    if (isSuperAdmin) {
+      adminApi.listCompanies().then((res) => setCompanies(res.data || [])).catch(() => {});
+    }
+  }, [isSuperAdmin]);
+
+  // Company is required for non-super_admin roles
+  const needsCompany = role !== "super_admin";
 
   // Check username availability
   useEffect(() => {
@@ -324,7 +379,13 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
     setError("");
     setLoading(true);
     try {
-      await adminApi.createUser({ username, full_name: fullName, password, role });
+      const data: any = { username, full_name: fullName, password, role };
+      if (isSuperAdmin && companyId) {
+        data.company_id = companyId;
+      } else if (!isSuperAdmin && currentUser?.company_id) {
+        data.company_id = currentUser.company_id;
+      }
+      await adminApi.createUser(data);
       onCreated();
       onClose();
     } catch (err: any) {
@@ -389,14 +450,33 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1.5">Role</label>
             <select value={role} onChange={(e) => setRole(e.target.value)} className="input-field w-full" disabled={loading}>
-              <option value="recruiter">Recruiter</option>
-              <option value="admin">Admin</option>
+              {isSuperAdmin ? (
+                <>
+                  <option value="recruiter">Recruiter</option>
+                  <option value="company_admin">Company Admin</option>
+                  <option value="super_admin">Super Admin</option>
+                </>
+              ) : (
+                <option value="recruiter">Recruiter</option>
+              )}
             </select>
           </div>
+          {isSuperAdmin && needsCompany && (
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">Company</label>
+              <select value={companyId} onChange={(e) => setCompanyId(e.target.value)}
+                className="input-field w-full" disabled={loading}>
+                <option value="">Select a company...</option>
+                {companies.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="flex items-center gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1" disabled={loading}>Cancel</button>
             <button type="submit" className="btn-primary flex-1 flex items-center justify-center gap-2"
-              disabled={loading || !username || !fullName || !password || usernameAvailable === false}>
+              disabled={loading || !username || !fullName || !password || usernameAvailable === false || (isSuperAdmin && needsCompany && !companyId)}>
               {loading ? <><Loader2 size={16} className="animate-spin" />Creating...</> : "Create User"}
             </button>
           </div>
@@ -483,10 +563,12 @@ function ActivityLog() {
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("");
   const [page, setPage] = useState(0);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const limit = 30;
 
   const fetchLogs = useCallback(async () => {
     setLoading(true);
+    setFetchError(null);
     try {
       const params: any = { skip: page * limit, limit };
       if (search) params.search = search;
@@ -494,7 +576,9 @@ function ActivityLog() {
       const res = await adminApi.getAuditLogs(params);
       setLogs(res.data.logs);
       setTotal(res.data.total);
-    } catch { /* handle */ }
+    } catch (err: any) {
+      setFetchError(extractError(err, "Failed to load activity logs."));
+    }
     finally { setLoading(false); }
   }, [search, actionFilter, page]);
 
@@ -517,6 +601,12 @@ function ActivityLog() {
 
   return (
     <>
+      {fetchError && (
+        <div className="flex items-center gap-2 p-3 mb-4 rounded-lg bg-red-50 border border-red-200">
+          <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
+          <p className="text-sm text-red-700">{fetchError}</p>
+        </div>
+      )}
       <div className="flex items-center gap-3 mb-5">
         <div className="relative flex-1 max-w-xs">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
@@ -635,6 +725,176 @@ function StatsPanel() {
           <p className="text-xs text-text-tertiary mt-1 uppercase tracking-wider font-medium">{label}</p>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// COMPANIES TAB (super_admin only)
+// ════════════════════════════════════════════════════════════════════
+
+function CompanyManagement() {
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const fetchCompanies = useCallback(async () => {
+    setLoading(true);
+    setActionError(null);
+    try {
+      const res = await adminApi.listCompanies();
+      setCompanies(res.data || []);
+    } catch (err: any) {
+      setActionError(extractError(err, "Failed to load companies."));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
+
+  const formatDate = (d: string) => {
+    return new Date(d).toLocaleDateString("en-US", {
+      month: "short", day: "numeric", year: "numeric",
+    });
+  };
+
+  return (
+    <>
+      {actionError && (
+        <div className="flex items-center justify-between gap-2 p-3 mb-4 rounded-lg bg-red-50 border border-red-200">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
+            <p className="text-sm text-red-700">{actionError}</p>
+          </div>
+          <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-600 p-0.5">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      <div className="flex items-center gap-3 mb-5">
+        <div className="flex-1" />
+        <button onClick={() => setShowCreateModal(true)} className="btn-primary flex items-center gap-1.5">
+          <Plus size={15} />
+          Create Company
+        </button>
+      </div>
+
+      <div className="glass-card-solid overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-surface-border">
+              <th className="text-left text-xs font-semibold text-text-tertiary uppercase tracking-wider px-5 py-3">Company</th>
+              <th className="text-left text-xs font-semibold text-text-tertiary uppercase tracking-wider px-5 py-3">Slug</th>
+              <th className="text-left text-xs font-semibold text-text-tertiary uppercase tracking-wider px-5 py-3">Users</th>
+              <th className="text-left text-xs font-semibold text-text-tertiary uppercase tracking-wider px-5 py-3">Status</th>
+              <th className="text-left text-xs font-semibold text-text-tertiary uppercase tracking-wider px-5 py-3">Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={5} className="text-center py-10 text-text-tertiary">
+                <Loader2 size={20} className="animate-spin mx-auto mb-2" />Loading...
+              </td></tr>
+            ) : companies.length === 0 ? (
+              <tr><td colSpan={5} className="text-center py-10 text-text-tertiary">No companies found</td></tr>
+            ) : (
+              companies.map((c) => (
+                <tr key={c.id} className="border-b border-surface-border/50 hover:bg-surface-secondary/50 transition-colors">
+                  <td className="px-5 py-3.5">
+                    <p className="text-sm font-medium text-text-primary">{c.name}</p>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <p className="text-sm text-text-tertiary">{c.slug}</p>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <p className="text-sm text-text-primary">{c.user_count}</p>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    {c.is_active ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700">Active</span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700">Inactive</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3.5 text-sm text-text-tertiary">{formatDate(c.created_at)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {showCreateModal && (
+        <CreateCompanyModal onClose={() => setShowCreateModal(false)} onCreated={fetchCompanies} />
+      )}
+    </>
+  );
+}
+
+// ── Create Company Modal ────────────────────────────────────────────
+
+function CreateCompanyModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      await adminApi.createCompany({ name, slug });
+      onCreated();
+      onClose();
+    } catch (err: any) {
+      setError(extractError(err, "Failed to create company."));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="glass-card-solid w-full max-w-md p-6 animate-fade-in">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-lg font-semibold text-text-primary">Create New Company</h3>
+          <button onClick={onClose} className="p-1 rounded-md text-text-tertiary hover:text-text-secondary hover:bg-surface-tertiary">
+            <X size={18} />
+          </button>
+        </div>
+
+        {error && (
+          <div className="flex items-center gap-2 p-3 mb-4 rounded-lg bg-red-50 border border-red-200">
+            <AlertCircle size={16} className="text-red-500" />
+            <p className="text-sm text-red-700">{error}</p>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Company Name</label>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)}
+              className="input-field w-full" placeholder="Acme Corp" autoFocus disabled={loading} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Slug</label>
+            <input type="text" value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
+              className="input-field w-full" placeholder="acme-corp" disabled={loading} />
+            <p className="text-xs text-text-tertiary mt-1">Lowercase alphanumeric, hyphens, underscores only</p>
+          </div>
+          <div className="flex items-center gap-3 pt-2">
+            <button type="button" onClick={onClose} className="btn-secondary flex-1" disabled={loading}>Cancel</button>
+            <button type="submit" className="btn-primary flex-1 flex items-center justify-center gap-2"
+              disabled={loading || !name || !slug}>
+              {loading ? <><Loader2 size={16} className="animate-spin" />Creating...</> : "Create Company"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

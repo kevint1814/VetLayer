@@ -115,6 +115,9 @@ export const authApi = {
     }),
 
   me: () => api.get("/auth/me"),
+
+  updateProfile: (data: { full_name?: string }) =>
+    api.put("/auth/me", data),
 };
 
 // ── Admin ───────────────────────────────────────────────────────────
@@ -123,7 +126,7 @@ export const adminApi = {
   listUsers: (params?: { role?: string; status?: string; search?: string; skip?: number; limit?: number }) =>
     api.get("/admin/users", { params }),
 
-  createUser: (data: { username: string; full_name: string; password: string; role?: string }) =>
+  createUser: (data: { username: string; full_name: string; password: string; role?: string; company_id?: string }) =>
     api.post("/admin/users", data),
 
   checkUsername: (username: string) =>
@@ -142,6 +145,14 @@ export const adminApi = {
     api.get("/admin/audit-logs", { params }),
 
   getStats: () => api.get("/admin/stats"),
+
+  listCompanies: () => api.get("/admin/companies"),
+
+  createCompany: (data: { name: string; slug: string }) =>
+    api.post("/admin/companies", data),
+
+  updateCompany: (companyId: string, data: { name?: string; is_active?: boolean }) =>
+    api.put(`/admin/companies/${companyId}`, data),
 };
 
 // ── Candidates ──────────────────────────────────────────────────────

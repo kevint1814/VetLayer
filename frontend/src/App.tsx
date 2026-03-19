@@ -11,6 +11,7 @@ import AnalysisPage from "./pages/AnalysisPage";
 import BatchAnalysisPage from "./pages/BatchAnalysisPage";
 import RankedResultsPage from "./pages/RankedResultsPage";
 import AdminPage from "./pages/AdminPage";
+import SettingsPage from "./pages/SettingsPage";
 import { Loader2 } from "lucide-react";
 
 function NotFoundPage() {
@@ -72,7 +73,8 @@ export default function App() {
         <Route path="/analysis/:id" element={<AnalysisPage />} />
         <Route path="/batch" element={<BatchAnalysisPage />} />
         <Route path="/ranked/:jobId" element={<RankedResultsPage />} />
-        {user?.role === "admin" && (
+        <Route path="/settings" element={<SettingsPage />} />
+        {(user?.role === "super_admin" || user?.role === "company_admin") && (
           <Route path="/admin" element={<AdminPage />} />
         )}
         <Route path="/login" element={<Navigate to="/" replace />} />

@@ -28,6 +28,9 @@ class AnalysisResult(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    company_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True
+    )
     candidate_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("candidates.id"), nullable=False, index=True
     )
@@ -62,7 +65,7 @@ class AnalysisResult(Base):
     # ── Metadata ─────────────────────────────────────────────────────
     llm_model_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
     processing_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
     # ── Relationships ────────────────────────────────────────────────
     candidate = relationship("Candidate", back_populates="analysis_results")
@@ -108,6 +111,9 @@ class BatchAnalysis(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    company_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True
     )
     batch_id: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
 

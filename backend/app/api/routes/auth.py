@@ -28,6 +28,7 @@ from app.schemas.auth import (
     LoginRequest,
     TokenResponse,
     ChangePasswordRequest,
+    UpdateProfileRequest,
     UserResponse,
 )
 from app.services.audit import log_action
@@ -53,8 +54,11 @@ async def login(
     """Authenticate with username and password. Returns access token + sets refresh cookie."""
     ip = get_client_ip(request)
 
-    # Look up user
-    result = await db.execute(select(User).where(User.username == body.username))
+    # Look up user (eagerly load company for user.company.name in response)
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(
+        select(User).where(User.username == body.username).options(selectinload(User.company))
+    )
     user = result.scalar_one_or_none()
 
     # ── Timing-safe check: always verify against a dummy hash if user not found
@@ -110,6 +114,10 @@ async def login(
             details=f"Invalid password (attempt {user.failed_login_attempts})",
             ip_address=ip,
         )
+        # CRITICAL: Commit the failed attempt counter + audit log BEFORE raising.
+        # get_db() rolls back on exception, so without this explicit commit the
+        # counter increment and lockout timestamp would be lost on every failed login.
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
@@ -121,7 +129,10 @@ async def login(
     user.locked_until = None
 
     # Generate tokens
-    access_token = create_access_token(str(user.id), user.username, user.role)
+    access_token = create_access_token(
+        str(user.id), user.username, user.role,
+        company_id=str(user.company_id) if user.company_id else None
+    )
     refresh_token = create_refresh_token(str(user.id))
 
     # Set refresh token as HttpOnly cookie
@@ -151,6 +162,8 @@ async def login(
             last_login_at=user.last_login_at,
             failed_login_attempts=user.failed_login_attempts,
             created_at=user.created_at,
+            company_id=str(user.company_id) if user.company_id else None,
+            company_name=user.company.name if user.company else None,
         ),
     )
 
@@ -182,7 +195,10 @@ async def refresh_token(
     except (ValueError, AttributeError):
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
-    result = await db.execute(select(User).where(User.id == user_uuid))
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(
+        select(User).where(User.id == user_uuid).options(selectinload(User.company))
+    )
     user = result.scalar_one_or_none()
 
     # ── Block refresh for inactive/locked users (HIGH fix)
@@ -192,7 +208,10 @@ async def refresh_token(
         raise HTTPException(status_code=401, detail="User not found or inactive")
 
     # Issue new tokens
-    access_token = create_access_token(str(user.id), user.username, user.role)
+    access_token = create_access_token(
+        str(user.id), user.username, user.role,
+        company_id=str(user.company_id) if user.company_id else None
+    )
     new_refresh = create_refresh_token(str(user.id))
 
     response.set_cookie(
@@ -218,6 +237,8 @@ async def refresh_token(
             last_login_at=user.last_login_at,
             failed_login_attempts=user.failed_login_attempts,
             created_at=user.created_at,
+            company_id=str(user.company_id) if user.company_id else None,
+            company_name=user.company.name if user.company else None,
         ),
     )
 
@@ -286,4 +307,39 @@ async def get_me(user: User = Depends(get_current_user)):
         last_login_at=user.last_login_at,
         failed_login_attempts=user.failed_login_attempts,
         created_at=user.created_at,
+        company_id=str(user.company_id) if user.company_id else None,
+        company_name=user.company.name if user.company else None,
+    )
+
+
+@router.put("/me", response_model=UserResponse)
+async def update_profile(
+    body: UpdateProfileRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Update the current user's profile (display name, etc.)."""
+    if body.full_name is not None:
+        user.full_name = body.full_name.strip()
+
+    await log_action(
+        db, user, "update_profile",
+        target_type="user", target_id=str(user.id),
+        details=f"Updated profile: full_name='{user.full_name}'",
+        ip_address=get_client_ip(request),
+    )
+
+    return UserResponse(
+        id=str(user.id),
+        username=user.username,
+        full_name=user.full_name,
+        role=user.role,
+        is_active=user.is_active,
+        force_password_change=user.force_password_change,
+        last_login_at=user.last_login_at,
+        failed_login_attempts=user.failed_login_attempts,
+        created_at=user.created_at,
+        company_id=str(user.company_id) if user.company_id else None,
+        company_name=user.company.name if user.company else None,
     )
