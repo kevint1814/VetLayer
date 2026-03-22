@@ -120,10 +120,12 @@ def generate_batch_brief_pdf(
 
         state = {"today": today, "ref": ref}
 
-        # Sort candidates by overall score descending
+        # Sort candidates by overall score descending, then by name for deterministic order
         candidates_data.sort(
-            key=lambda x: x.get("analysis", {}).get("overall_score", 0),
-            reverse=True,
+            key=lambda x: (
+                -(x.get("analysis", {}).get("overall_score", 0)),
+                x.get("name", ""),
+            ),
         )
 
         # ═══════════════════════════════════════════════════════════════
@@ -181,7 +183,7 @@ def _draw_overview_page(c, batch_data: dict, candidates: List[dict], state: dict
     c.drawRightString(PAGE_W - MARGIN, y - 14, f"REF {state['ref']}")
     y -= 54
 
-    # Job title
+    # Job title — use Paragraph for wrapping when title is too long
     job_titles = batch_data.get("job_titles", [])
     title_text = job_titles[0].upper() if job_titles else "BATCH ANALYSIS"
     title_size = 24
@@ -189,10 +191,27 @@ def _draw_overview_page(c, batch_data: dict, candidates: List[dict], state: dict
         if c.stringWidth(title_text, "Times-Bold", title_size) <= CONTENT_W:
             break
         title_size -= 1
-    c.setFont("Times-Bold", title_size)
-    c.setFillColor(C_BLACK)
-    c.drawCentredString(PAGE_W / 2, y, title_text)
-    y -= 20
+
+    if c.stringWidth(title_text, "Times-Bold", title_size) <= CONTENT_W:
+        # Fits on one line — draw directly
+        c.setFont("Times-Bold", title_size)
+        c.setFillColor(C_BLACK)
+        c.drawCentredString(PAGE_W / 2, y, title_text)
+        y -= 20
+    else:
+        # Too long even at min size — wrap with Paragraph
+        title_style = ParagraphStyle(
+            "BatchTitle",
+            fontName="Times-Bold",
+            fontSize=title_size,
+            leading=title_size + 4,
+            alignment=TA_CENTER,
+            textColor=C_BLACK,
+        )
+        para = Paragraph(title_text, title_style)
+        pw, ph = para.wrap(CONTENT_W, 200)
+        para.drawOn(c, MARGIN, y - ph + title_size)
+        y -= ph + 4
 
     # Subtitle
     subtitle = f"{len(candidates)} CANDIDATES EVALUATED"
@@ -212,7 +231,7 @@ def _draw_overview_page(c, batch_data: dict, candidates: List[dict], state: dict
         avg_score = sum(cd["analysis"]["overall_score"] for cd in successful) / len(successful)
         strong_yes_count = sum(
             1 for cd in successful
-            if cd["analysis"].get("recommendation", "").lower() in ("strong_yes", "strong yes")
+            if (cd["analysis"].get("recommendation") or "").lower() in ("strong_yes", "strong yes")
         )
 
     avg_time_ms = batch_data.get("elapsed_ms", 0)
@@ -279,11 +298,11 @@ def _build_batch_summary(batch_data: dict, candidates: List[dict]) -> str:
 
     strong_count = sum(
         1 for cd in successful
-        if cd["analysis"].get("recommendation", "").lower() in ("strong_yes", "strong yes")
+        if (cd["analysis"].get("recommendation") or "").lower() in ("strong_yes", "strong yes")
     )
     yes_count = sum(
         1 for cd in successful
-        if cd["analysis"].get("recommendation", "").lower() in ("yes",)
+        if (cd["analysis"].get("recommendation") or "").lower() in ("yes",)
     )
 
     parts = [f"This batch analysis evaluated {n} candidates against the {job} position."]
@@ -529,24 +548,29 @@ def _draw_candidate_page(c, cand: dict, idx: int, total: int, state: dict):
 
     # LEFT: Risk Flags
     risk_flags = cand.get("risk_flags", [])
-    if risk_flags:
+    if risk_flags and y_left - 58 >= FOOTER_Y + 10:
         y_left = _section_label(c, "RISK FLAGS", LEFT_X, COL_W, y_left)
         for rf in risk_flags[:3]:
-            if y_left < FOOTER_Y + 30:
+            if y_left < FOOTER_Y + 40:
                 break
             severity = rf.get("severity", "medium")
             title = _sanitize(rf.get("title", ""))
             desc = _sanitize(rf.get("description", ""))
             y_left = _draw_risk_flag(c, severity, title, desc, LEFT_X, COL_W, y_left)
 
-    # RIGHT: Key Strengths
-    y_right = _section_label(c, "KEY STRENGTHS", RIGHT_X, COL_W, y_right)
+    # RIGHT: Key Strengths + Skill Gaps
+    # When gaps exist, cap strengths to leave room for gap items
     strengths_items = _extract_text_items(analysis.get("strengths"))
-    for s in strengths_items[:4]:
-        if y_right < FOOTER_Y + 30:
-            break
+    gaps_items = _extract_text_items(analysis.get("gaps"))
+    max_strengths = 3 if gaps_items else 4
+
+    if strengths_items and y_right - 58 >= FOOTER_Y + 10:
+        y_right = _section_label(c, "KEY STRENGTHS", RIGHT_X, COL_W, y_right)
+    for s in strengths_items[:max_strengths]:
         para = Paragraph(_sanitize(s), STYLE_STRENGTH)
-        _, h = para.wrap(COL_W, 100)
+        _, h = para.wrap(COL_W, 200)
+        if y_right - h < FOOTER_Y + 10:
+            break
         para.drawOn(c, RIGHT_X, y_right - h)
         y_right -= h + 4
         c.setStrokeColor(HexColor("#eae6df"))
@@ -555,17 +579,21 @@ def _draw_candidate_page(c, cand: dict, idx: int, total: int, state: dict):
     y_right -= 10
 
     # RIGHT: Skill Gaps
-    gaps_items = _extract_text_items(analysis.get("gaps"))
     if gaps_items:
-        y_right = _section_label(c, "SKILL GAPS", RIGHT_X, COL_W, y_right)
-        for g in gaps_items[:3]:
-            if y_right < FOOTER_Y + 30:
-                break
-            text = _sanitize(g)
-            para = Paragraph(text, STYLE_GAP)
-            _, h = para.wrap(COL_W, 100)
-            para.drawOn(c, RIGHT_X, y_right - h)
-            y_right -= h + 2
+        # Only draw header if there's room for it + at least one gap paragraph
+        first_para = Paragraph(_sanitize(gaps_items[0]), STYLE_GAP)
+        _, first_h = first_para.wrap(COL_W, 200)
+        # Section label takes ~18px, plus the first paragraph height
+        if y_right - 18 - first_h >= FOOTER_Y + 10:
+            y_right = _section_label(c, "SKILL GAPS", RIGHT_X, COL_W, y_right)
+            for g in gaps_items[:3]:
+                text = _sanitize(g)
+                para = Paragraph(text, STYLE_GAP)
+                _, h = para.wrap(COL_W, 200)
+                if y_right - h < FOOTER_Y + 10:
+                    break
+                para.drawOn(c, RIGHT_X, y_right - h)
+                y_right -= h + 2
 
     y = min(y_left, y_right) - 8
 
@@ -1006,17 +1034,17 @@ def _build_recommendations(candidates: List[dict]) -> List[str]:
     for cd in candidates:
         name = cd.get("name", "Unknown")
         score = cd.get("analysis", {}).get("overall_score", 0)
-        rec = cd.get("analysis", {}).get("recommendation", "").lower().replace("_", " ")
+        rec = (cd.get("analysis", {}).get("recommendation") or "").lower().replace("_", " ")
 
         entry = f"{_sanitize(name)} ({score:.0f}%)"
-        if rec in ("strong yes", "strong_yes"):
+        if rec in ("strong yes", "strong_yes", "yes"):
             advance.append(entry)
-        elif rec == "yes":
-            hold.append(entry)
         elif rec == "maybe":
             hold.append(entry)
-        else:
+        elif rec in ("no", "strong no", "strong_no"):
             pass_list.append(entry)
+        else:
+            hold.append(entry)  # Unknown recommendations default to hold
 
     recs = []
     if advance:
@@ -1047,8 +1075,14 @@ def _extract_text_items(data) -> List[str]:
     return []
 
 
-def _truncate_for_column(text: str, max_chars: int = 200) -> str:
-    """Truncate text to fit in a column, keeping it readable."""
+def _truncate_for_column(text: str, max_chars: int = 500) -> str:
+    """Truncate text to fit in a column, keeping it readable.
+
+    500 chars is generous enough to show full skill assessments
+    while still protecting against pathologically long entries.
+    The Paragraph renderer handles line wrapping within the column width,
+    and the footer overflow check prevents drawing past the page bottom.
+    """
     if len(text) <= max_chars:
         return text
     return text[:max_chars - 3].rsplit(" ", 1)[0] + "..."
@@ -1073,10 +1107,10 @@ def _draw_pool_strengths_gaps(c, candidates: List[dict], y: float) -> float:
                 seen_strengths.add(key)
                 strengths.append(_truncate_for_column(s))
     for s_text in strengths[:4]:
-        if y_left < FOOTER_Y + 20:
-            break
         para = Paragraph(_sanitize(s_text), STYLE_STRENGTH)
-        _, h = para.wrap(COL_W, 100)
+        _, h = para.wrap(COL_W, 200)
+        if y_left - h < FOOTER_Y + 10:
+            break
         para.drawOn(c, LEFT_X, y_left - h)
         y_left -= h + 4
         c.setStrokeColor(HexColor("#eae6df"))
@@ -1096,10 +1130,10 @@ def _draw_pool_strengths_gaps(c, candidates: List[dict], y: float) -> float:
                 seen_gaps.add(key)
                 gaps.append(_truncate_for_column(g))
     for g_text in gaps[:4]:
-        if y_right < FOOTER_Y + 20:
-            break
         para = Paragraph(_sanitize(g_text), STYLE_GAP)
-        _, h = para.wrap(COL_W, 100)
+        _, h = para.wrap(COL_W, 200)
+        if y_right - h < FOOTER_Y + 10:
+            break
         para.drawOn(c, RIGHT_X, y_right - h)
         y_right -= h + 4
         c.setStrokeColor(HexColor("#eae6df"))

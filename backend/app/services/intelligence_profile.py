@@ -42,7 +42,7 @@ Return a JSON object with EXACTLY these keys:
 
 - "ideal_roles_narrative": 2-3 sentence prose paragraph on what types of roles and environments suit them and why, connected to their experience.
 
-- "career_timeline_briefs": [{"company": "Company Name", "brief": "1-2 sentence analyst-written summary of what they did and achieved in this role. Focus on impact, scope, and what it tells us."}] — write one for EACH role in the resume.
+- "career_timeline_briefs": [{"company": "Company Name", "title": "Job Title", "brief": "1-2 sentence analyst-written summary of what they did and achieved in this role. Focus on impact, scope, and what it tells us."}] — write one for EACH role in the resume. CRITICAL: include the exact job title so each role can be uniquely identified, especially when the candidate held multiple roles at the same company.
 
 - "talking_points": [3-5 specific things a recruiter should ask about or discuss. Not generic questions — genuinely interesting or clarifying.]
 

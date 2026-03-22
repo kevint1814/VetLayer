@@ -132,13 +132,14 @@ async def trigger_analysis(
             parsed_resume=resume_parsed,
             required_skills=required_skills,
             preferred_skills=preferred_skills,
+            job_title=job.title or "",
         )
     except Exception as e:
         logger.error(f"Skill pipeline failed: {e}")
         raise HTTPException(status_code=500, detail=f"Analysis pipeline failed: {str(e)}")
 
     # ── Apply skill adjacency boosts ──────────────────────────────────
-    _apply_adjacency_boosts(assessments)
+    _apply_adjacency_boosts(assessments, parsed_resume=resume_parsed)
 
     # ── Delete existing skills for this candidate (avoid duplicates on re-analysis)
     existing_skills = await db.execute(select(Skill).where(Skill.candidate_id == candidate.id))
@@ -216,7 +217,11 @@ async def trigger_analysis(
         gaps=scores["gaps"],
         summary_text=_generate_summary(candidate, job, assessments, scores),
         recommendation=scores["recommendation"],
-        llm_model_used=settings.OPENAI_MODEL if settings.LLM_PROVIDER == "openai" else settings.ANTHROPIC_MODEL,
+        llm_model_used=(
+            settings.GROQ_MODEL if settings.LLM_PROVIDER == "groq"
+            else settings.OPENAI_MODEL if settings.LLM_PROVIDER == "openai"
+            else settings.ANTHROPIC_MODEL
+        ),
         processing_time_ms=processing_time,
     )
     db.add(analysis)
@@ -797,54 +802,216 @@ async def bulk_delete_analyses(
 
 # Canonical skill groups — all variants map to the same canonical name
 _SKILL_GROUPS = [
-    # Web fundamentals
+    # ── Web fundamentals ──────────────────────────────────────────────
     (["html", "html5", "html 5"], "html"),
-    (["css", "css3", "css 3"], "css"),
-    (["sass", "scss", "less"], "sass/scss"),
-    (["javascript", "js", "ecmascript", "es6", "es2015", "object oriented javascript"], "javascript"),
+    (["css", "css3", "css 3", "cascading style sheets"], "css"),
+    (["sass", "scss", "less", "stylus"], "sass/scss"),
+    (["javascript", "js", "ecmascript", "es6", "es2015", "es2016", "es2017",
+      "object oriented javascript", "vanilla js", "vanilla javascript"], "javascript"),
     (["typescript", "ts"], "typescript"),
-    # Frontend frameworks
+    # ── Frontend frameworks ───────────────────────────────────────────
     (["react", "react.js", "reactjs", "react js"], "react"),
-    (["vue", "vue.js", "vuejs", "vue js"], "vue"),
-    (["angular", "angular.js", "angularjs"], "angular"),
+    (["vue", "vue.js", "vuejs", "vue js", "vue 3", "vue 2"], "vue"),
+    (["angular", "angular.js", "angularjs", "angular 2+"], "angular"),
     (["next", "next.js", "nextjs"], "next.js"),
-    (["svelte", "sveltekit"], "svelte"),
-    # Backend
+    (["nuxt", "nuxt.js", "nuxtjs"], "nuxt.js"),
+    (["svelte", "sveltekit", "svelte kit"], "svelte"),
+    (["gatsby", "gatsby.js", "gatsbyjs"], "gatsby"),
+    (["remix", "remix.run"], "remix"),
+    (["jquery", "j query"], "jquery"),
+    (["tailwind", "tailwind css", "tailwindcss"], "tailwind"),
+    (["bootstrap", "bootstrap css", "bootstrap 5", "bootstrap 4"], "bootstrap"),
+    (["material ui", "material-ui", "mui"], "material ui"),
+    # ── Backend frameworks ────────────────────────────────────────────
     (["node", "node.js", "nodejs", "node js"], "node.js"),
-    (["python", "py", "python3"], "python"),
-    (["java", "jdk"], "java"),
+    (["python", "py", "python3", "python 3"], "python"),
+    (["java", "jdk", "j2ee", "jee"], "java"),
     (["golang", "go lang"], "go"),
+    (["php", "php7", "php8", "php 7", "php 8"], "php"),
+    (["ruby", "rb"], "ruby"),
+    (["c#", "csharp", "c sharp", "c #"], "c#"),
+    (["c++", "cpp", "c plus plus"], "c++"),
+    (["c", "c language", "ansi c"], "c"),
+    (["rust", "rustlang"], "rust"),
+    (["scala", "scala lang"], "scala"),
+    (["kotlin", "kt"], "kotlin"),
+    (["swift", "swift lang", "swift ui", "swiftui"], "swift"),
+    (["dart", "dart lang"], "dart"),
+    (["r", "r language", "r programming", "rlang"], "r"),
+    (["perl", "perl 5"], "perl"),
+    (["lua", "lua lang"], "lua"),
+    (["elixir", "elixir lang"], "elixir"),
+    (["haskell"], "haskell"),
+    (["clojure"], "clojure"),
+    # ── Backend frameworks (specific) ─────────────────────────────────
     (["fastapi", "fast api", "fast-api"], "fastapi"),
-    (["django", "django rest framework", "drf"], "django"),
-    (["flask"], "flask"),
+    (["django", "django rest framework", "drf", "django rest"], "django"),
+    (["flask", "flask api"], "flask"),
     (["express", "express.js", "expressjs"], "express"),
-    # Databases
+    (["nestjs", "nest.js", "nest js"], "nestjs"),
+    (["spring", "spring boot", "spring framework", "springboot"], "spring boot"),
+    (["laravel", "laravel php"], "laravel"),
+    (["symfony", "symfony php"], "symfony"),
+    (["codeigniter", "code igniter"], "codeigniter"),
+    (["wordpress", "word press", "wp"], "wordpress"),
+    (["drupal"], "drupal"),
+    (["rails", "ruby on rails", "ror"], "rails"),
+    (["asp.net", "aspnet", "asp net", ".net", "dotnet", "dot net", ".net core", "dotnet core"], ".net"),
+    (["sinatra"], "sinatra"),
+    (["gin", "gin-gonic"], "gin"),
+    (["fiber", "gofiber"], "fiber"),
+    (["actix", "actix-web"], "actix"),
+    (["phoenix", "phoenix framework"], "phoenix"),
+    # ── Mobile ────────────────────────────────────────────────────────
+    (["react native", "react-native", "reactnative", "rn"], "react native"),
+    (["flutter", "flutter sdk"], "flutter"),
+    (["android", "android sdk", "android development"], "android"),
+    (["ios", "ios development", "ios sdk", "uikit", "cocoa touch"], "ios"),
+    (["xamarin", "maui", ".net maui"], "xamarin"),
+    (["ionic", "ionic framework"], "ionic"),
+    (["expo", "expo sdk"], "expo"),
+    # ── Databases ─────────────────────────────────────────────────────
     (["postgresql", "postgres", "pg", "psql"], "postgresql"),
-    (["mongodb", "mongo"], "mongodb"),
+    (["mongodb", "mongo", "mongoose"], "mongodb"),
     (["mysql", "mariadb"], "mysql"),
-    (["redis", "redis cache"], "redis"),
-    (["sql", "structured query language"], "sql"),
-    # Messaging / Streaming
-    (["kafka", "apache kafka"], "kafka"),
-    (["rabbitmq", "rabbit mq"], "rabbitmq"),
-    # DevOps / Cloud
+    (["redis", "redis cache", "redis db"], "redis"),
+    (["sql", "structured query language", "t-sql", "tsql", "pl/sql", "plsql"], "sql"),
+    (["sqlite", "sqlite3"], "sqlite"),
+    (["oracle", "oracle db", "oracle database"], "oracle"),
+    (["cassandra", "apache cassandra"], "cassandra"),
+    (["dynamodb", "dynamo db", "aws dynamodb"], "dynamodb"),
+    (["couchdb", "couch db", "couchbase"], "couchbase"),
+    (["neo4j", "neo 4j", "graph database"], "neo4j"),
+    (["elasticsearch", "elastic search", "elastic", "opensearch"], "elasticsearch"),
+    (["firestore", "firebase firestore", "cloud firestore"], "firestore"),
+    (["firebase", "firebase realtime", "firebase rtdb"], "firebase"),
+    (["supabase"], "supabase"),
+    (["prisma", "prisma orm"], "prisma"),
+    (["sequelize"], "sequelize"),
+    (["sqlalchemy", "sql alchemy"], "sqlalchemy"),
+    (["typeorm", "type orm"], "typeorm"),
+    # ── Messaging / Streaming ─────────────────────────────────────────
+    (["kafka", "apache kafka", "kafka streams"], "kafka"),
+    (["rabbitmq", "rabbit mq", "amqp"], "rabbitmq"),
+    (["sqs", "aws sqs", "amazon sqs"], "sqs"),
+    (["celery", "celery task"], "celery"),
+    (["nats", "nats streaming"], "nats"),
+    # ── DevOps / Cloud ────────────────────────────────────────────────
     (["aws", "amazon web services", "amazon aws"], "aws"),
     (["gcp", "google cloud", "google cloud platform"], "gcp"),
-    (["azure", "microsoft azure"], "azure"),
+    (["azure", "microsoft azure", "azure cloud"], "azure"),
     (["kubernetes", "k8s", "kube"], "kubernetes"),
-    (["docker", "containerization"], "docker"),
-    (["ci/cd", "ci cd", "cicd", "continuous integration", "continuous deployment", "github actions"], "ci/cd"),
-    (["terraform", "infrastructure as code", "iac"], "terraform"),
-    # Tools
-    (["webpack", "module bundlers", "module bundler", "vite", "rollup", "esbuild"], "webpack"),
-    (["git", "github", "gitlab", "version control"], "git"),
-    # Concepts
+    (["docker", "containerization", "docker compose", "docker-compose"], "docker"),
+    (["ci/cd", "ci cd", "cicd", "continuous integration", "continuous deployment",
+      "github actions", "gitlab ci", "jenkins", "circleci", "travis ci",
+      "azure devops", "bitbucket pipelines"], "ci/cd"),
+    (["terraform", "infrastructure as code", "iac", "terraform cloud"], "terraform"),
+    (["ansible", "ansible playbook"], "ansible"),
+    (["nginx", "nginx server", "reverse proxy"], "nginx"),
+    (["apache", "apache server", "httpd", "apache httpd"], "apache"),
+    (["linux", "ubuntu", "centos", "debian", "rhel", "fedora",
+      "unix", "bash scripting", "shell scripting"], "linux"),
+    (["prometheus", "prometheus monitoring"], "prometheus"),
+    (["grafana", "grafana dashboard"], "grafana"),
+    (["datadog", "data dog"], "datadog"),
+    (["new relic", "newrelic"], "new relic"),
+    (["cloudflare", "cloud flare"], "cloudflare"),
+    (["vercel", "vercel platform"], "vercel"),
+    (["netlify"], "netlify"),
+    (["heroku"], "heroku"),
+    (["digitalocean", "digital ocean"], "digitalocean"),
+    # ── AWS services (specific) ───────────────────────────────────────
+    (["ec2", "aws ec2", "amazon ec2"], "ec2"),
+    (["s3", "aws s3", "amazon s3"], "s3"),
+    (["lambda", "aws lambda", "serverless"], "lambda"),
+    (["ecs", "aws ecs", "fargate", "aws fargate"], "ecs"),
+    (["rds", "aws rds", "amazon rds"], "rds"),
+    (["cloudformation", "aws cloudformation", "cfn"], "cloudformation"),
+    # ── Data / ML / AI ────────────────────────────────────────────────
+    (["pandas", "pd", "python pandas"], "pandas"),
+    (["numpy", "np", "python numpy"], "numpy"),
+    (["scipy", "sci py"], "scipy"),
+    (["matplotlib", "pyplot"], "matplotlib"),
+    (["tensorflow", "tf", "tensor flow"], "tensorflow"),
+    (["pytorch", "torch", "py torch"], "pytorch"),
+    (["scikit-learn", "sklearn", "scikit learn"], "scikit-learn"),
+    (["keras", "tf.keras"], "keras"),
+    (["opencv", "open cv", "cv2"], "opencv"),
+    (["spark", "apache spark", "pyspark"], "spark"),
+    (["hadoop", "apache hadoop", "hdfs", "mapreduce"], "hadoop"),
+    (["airflow", "apache airflow"], "airflow"),
+    (["dbt", "data build tool"], "dbt"),
+    (["tableau", "tableau desktop", "tableau server"], "tableau"),
+    (["power bi", "powerbi", "power-bi", "microsoft power bi"], "power bi"),
+    (["jupyter", "jupyter notebook", "jupyterlab"], "jupyter"),
+    (["nlp", "natural language processing", "text mining"], "nlp"),
+    (["computer vision", "image recognition", "object detection"], "computer vision"),
+    (["llm", "large language model", "large language models", "gpt", "chatgpt",
+      "openai api", "anthropic api", "claude api", "langchain", "llamaindex"], "llm/ai"),
+    (["machine learning", "ml", "deep learning", "dl", "neural networks"], "machine learning"),
+    (["data science", "data analysis", "data analytics"], "data science"),
+    # ── Testing ───────────────────────────────────────────────────────
+    (["jest", "jest js"], "jest"),
+    (["pytest", "py.test", "python pytest"], "pytest"),
+    (["junit", "j unit"], "junit"),
+    (["cypress", "cypress.io"], "cypress"),
+    (["playwright", "ms playwright"], "playwright"),
+    (["selenium", "selenium webdriver"], "selenium"),
+    (["mocha", "mocha js"], "mocha"),
+    (["chai", "chai js"], "chai"),
+    (["vitest"], "vitest"),
+    (["rspec", "r spec"], "rspec"),
+    (["phpunit", "php unit"], "phpunit"),
+    (["testing library", "react testing library", "rtl"], "testing library"),
+    (["storybook", "story book"], "storybook"),
+    (["unit testing", "unit tests"], "unit testing"),
+    (["integration testing", "integration tests"], "integration testing"),
+    (["e2e testing", "end to end testing", "end-to-end testing"], "e2e testing"),
+    (["tdd", "test driven development", "test-driven development"], "tdd"),
+    # ── Tools / Build ─────────────────────────────────────────────────
+    (["webpack", "module bundlers", "module bundler", "vite", "rollup", "esbuild",
+      "parcel", "snowpack"], "webpack"),
+    (["git", "github", "gitlab", "version control", "bitbucket"], "git"),
+    (["npm", "yarn", "pnpm", "package manager"], "npm"),
+    (["jira", "jira software"], "jira"),
+    (["confluence"], "confluence"),
+    (["figma", "figma design"], "figma"),
+    (["sketch", "sketch app"], "sketch"),
+    (["adobe xd", "xd"], "adobe xd"),
+    (["postman", "postman api"], "postman"),
+    (["swagger", "openapi", "open api", "openapi spec"], "swagger"),
+    (["vs code", "vscode", "visual studio code"], "vscode"),
+    (["intellij", "intellij idea", "webstorm", "pycharm"], "jetbrains"),
+    # ── Concepts / Architecture ───────────────────────────────────────
     (["oop", "object oriented programming", "object-oriented"], "oop"),
-    (["rest api", "restful", "restful api", "rest apis"], "rest api"),
+    (["rest api", "restful", "restful api", "rest apis", "restful apis"], "rest api"),
     (["graphql", "graph ql"], "graphql"),
     (["microservices", "micro services", "service oriented architecture", "soa"], "microservices"),
-    (["agile", "scrum", "kanban", "agile/scrum"], "agile"),
-    # Browser APIs — expanded to catch all common web platform features
+    (["agile", "scrum", "kanban", "agile/scrum", "agile methodology"], "agile"),
+    (["design patterns", "solid principles", "solid", "clean architecture"], "design patterns"),
+    (["system design", "systems design", "distributed systems", "scalability"], "system design"),
+    (["api design", "api development", "api architecture"], "api design"),
+    (["responsive design", "responsive web design", "rwd", "mobile first"], "responsive design"),
+    (["seo", "search engine optimization"], "seo"),
+    (["accessibility", "a11y", "wcag", "web accessibility", "aria"], "accessibility"),
+    (["security", "web security", "owasp", "authentication", "authorization",
+      "oauth", "oauth2", "jwt", "json web token"], "security"),
+    (["websocket", "websockets", "socket.io", "real-time", "real time communication"], "websockets"),
+    # ── General tools (non-technical but recruiter-listed) ────────────
+    (["microsoft office", "ms office", "office 365", "microsoft 365",
+      "word", "excel", "powerpoint", "outlook", "ms word", "ms excel",
+      "ms powerpoint", "office suite"], "microsoft office"),
+    (["google workspace", "g suite", "gsuite", "google docs", "google sheets",
+      "google slides"], "google workspace"),
+    (["ai tools", "ai-powered tools", "ai assistants", "copilot",
+      "github copilot", "chatgpt", "claude", "generative ai", "gen ai",
+      "ai automation", "prompt engineering"], "ai tools"),
+    (["photoshop", "adobe photoshop", "illustrator", "adobe illustrator",
+      "lightroom", "indesign", "after effects", "premiere pro",
+      "adobe creative suite", "creative cloud"], "adobe creative suite"),
+    (["canva"], "canva"),
+    (["slack", "microsoft teams", "teams", "zoom", "discord"], "collaboration tools"),
+    # ── Browser APIs ──────────────────────────────────────────────────
     (["browser apis", "web apis", "browser api", "web storage",
       "local storage", "localstorage", "session storage", "sessionstorage",
       "indexeddb", "indexed db", "service worker", "service workers",
@@ -852,12 +1019,131 @@ _SKILL_GROUPS = [
       "dom manipulation", "dom api", "dom apis", "web components",
       "shadow dom", "custom elements", "intersection observer",
       "mutation observer", "resize observer", "performance api",
-      "geolocation api", "notification api", "websocket", "websockets",
+      "geolocation api", "notification api", "websocket api",
       "canvas api", "webgl", "web audio", "media api",
       "clipboard api", "drag and drop", "file api",
       "history api", "url api", "broadcast channel",
-      "cache api", "caching", "browser caching",
+      "cache api", "browser caching",
       "web storage api", "web platform"], "browser apis"),
+    # ── ERP / Enterprise ───────────────────────────────────────────────
+    (["sap", "sap erp", "sap s/4hana", "sap hana"], "sap"),
+    (["oracle erp", "oracle cloud", "oracle fusion"], "oracle erp"),
+    (["netsuite", "oracle netsuite"], "netsuite"),
+    (["microsoft dynamics", "dynamics 365", "dynamics crm", "dynamics nav"], "microsoft dynamics"),
+    (["workday", "workday hcm"], "workday"),
+    (["servicenow", "service now", "snow"], "servicenow"),
+    # ── CRM ────────────────────────────────────────────────────────────
+    (["salesforce", "sfdc", "salesforce crm", "salesforce lightning",
+      "apex", "soql", "visualforce"], "salesforce"),
+    (["hubspot", "hub spot", "hubspot crm"], "hubspot"),
+    (["zoho", "zoho crm"], "zoho"),
+    # ── Blockchain / Web3 ──────────────────────────────────────────────
+    (["solidity", "solidity lang"], "solidity"),
+    (["ethereum", "eth", "evm"], "ethereum"),
+    (["web3", "web3.js", "web3js", "ethers.js", "ethersjs"], "web3"),
+    (["hardhat", "truffle", "foundry"], "hardhat"),
+    (["smart contracts", "smart contract"], "smart contracts"),
+    # ── Game Development ───────────────────────────────────────────────
+    (["unity", "unity3d", "unity 3d", "unity engine"], "unity"),
+    (["unreal", "unreal engine", "ue4", "ue5"], "unreal engine"),
+    (["godot", "godot engine"], "godot"),
+    (["c# unity", "game development", "gamedev"], "game development"),
+    # ── Low-code / No-code ─────────────────────────────────────────────
+    (["zapier", "zap"], "zapier"),
+    (["make", "integromat", "make.com"], "make"),
+    (["retool", "re tool"], "retool"),
+    (["power apps", "powerapps", "microsoft power apps"], "power apps"),
+    (["power automate", "power automate flow", "microsoft power automate"], "power automate"),
+    (["bubble", "bubble.io"], "bubble"),
+    (["airtable", "air table"], "airtable"),
+    (["notion", "notion.so"], "notion"),
+    # ── Business Intelligence ──────────────────────────────────────────
+    (["looker", "google looker", "looker studio"], "looker"),
+    (["qlik", "qlikview", "qlik sense", "qliksense"], "qlik"),
+    (["google data studio", "data studio"], "google data studio"),
+    (["metabase", "meta base"], "metabase"),
+    (["superset", "apache superset"], "superset"),
+    (["sisense"], "sisense"),
+    # ── Cybersecurity ──────────────────────────────────────────────────
+    (["splunk", "splunk enterprise", "splunk siem"], "splunk"),
+    (["wireshark", "wire shark"], "wireshark"),
+    (["burp suite", "burpsuite", "burp"], "burp suite"),
+    (["nessus", "tenable nessus"], "nessus"),
+    (["metasploit", "metasploit framework"], "metasploit"),
+    (["kali linux", "kali"], "kali linux"),
+    (["soc2", "soc 2", "soc2 compliance"], "soc2"),
+    (["iso 27001", "iso27001"], "iso 27001"),
+    (["penetration testing", "pen testing", "pentest", "pentesting"], "penetration testing"),
+    (["vulnerability assessment", "vulnerability scanning"], "vulnerability assessment"),
+    (["siem", "security information", "security event management"], "siem"),
+    (["ids/ips", "intrusion detection", "intrusion prevention"], "ids/ips"),
+    # ── Networking / Infrastructure ────────────────────────────────────
+    (["cisco", "cisco ios", "ccna", "ccnp"], "cisco"),
+    (["load balancer", "load balancing", "haproxy", "f5"], "load balancing"),
+    (["dns", "domain name system", "bind", "route53", "aws route 53"], "dns"),
+    (["cdn", "content delivery network", "cloudfront", "akamai", "fastly"], "cdn"),
+    (["vpn", "virtual private network", "wireguard", "openvpn"], "vpn"),
+    (["tcp/ip", "tcp ip", "networking", "network protocols", "http/https",
+      "osi model"], "networking"),
+    # ── Data Platforms ─────────────────────────────────────────────────
+    (["snowflake", "snowflake db", "snowflake data"], "snowflake"),
+    (["bigquery", "big query", "google bigquery", "bq"], "bigquery"),
+    (["databricks", "data bricks", "databricks lakehouse"], "databricks"),
+    (["redshift", "amazon redshift", "aws redshift"], "redshift"),
+    (["dbt cloud", "dbt core"], "dbt"),
+    (["fivetran", "five tran"], "fivetran"),
+    (["stitch", "stitch data"], "stitch"),
+    (["delta lake", "deltalake"], "delta lake"),
+    (["apache iceberg", "iceberg"], "iceberg"),
+    (["data lake", "datalake", "data lakehouse", "lakehouse"], "data lake"),
+    (["etl", "elt", "extract transform load", "data pipeline", "data pipelines"], "etl/elt"),
+    # ── MLOps / LLMOps ─────────────────────────────────────────────────
+    (["mlflow", "ml flow", "mlflow tracking"], "mlflow"),
+    (["weights and biases", "wandb", "w&b"], "wandb"),
+    (["langchain", "lang chain"], "langchain"),
+    (["llamaindex", "llama index", "llama_index"], "llamaindex"),
+    (["pinecone", "pinecone db"], "pinecone"),
+    (["chroma", "chromadb", "chroma db"], "chroma"),
+    (["weaviate", "weaviate db"], "weaviate"),
+    (["milvus", "milvus db"], "milvus"),
+    (["vector database", "vector db", "vector store", "vector search"], "vector database"),
+    (["prompt engineering", "prompt design", "prompt tuning"], "prompt engineering"),
+    (["rag", "retrieval augmented generation"], "rag"),
+    (["fine tuning", "fine-tuning", "model fine tuning", "llm fine tuning"], "fine-tuning"),
+    (["hugging face", "huggingface", "hf", "transformers library"], "hugging face"),
+    (["sagemaker", "aws sagemaker", "amazon sagemaker"], "sagemaker"),
+    (["vertex ai", "google vertex", "vertex"], "vertex ai"),
+    (["azure ml", "azure machine learning"], "azure ml"),
+    (["kubeflow", "kube flow"], "kubeflow"),
+    (["feature store", "feast", "tecton"], "feature store"),
+    # ── Project Management / Methodology ───────────────────────────────
+    (["asana", "asana pm"], "asana"),
+    (["monday", "monday.com", "monday pm"], "monday"),
+    (["trello", "trello board"], "trello"),
+    (["linear", "linear app", "linear.app"], "linear"),
+    (["clickup", "click up"], "clickup"),
+    (["basecamp"], "basecamp"),
+    (["agile", "agile methodology", "agile development"], "agile"),
+    (["scrum", "scrum master", "scrum methodology"], "scrum"),
+    (["kanban", "kanban board", "kanban methodology"], "kanban"),
+    (["safe", "scaled agile", "scaled agile framework", "safe framework"], "safe"),
+    (["lean", "lean methodology", "lean development"], "lean"),
+    (["waterfall", "waterfall methodology"], "waterfall"),
+    # ── Documentation / Communication ──────────────────────────────────
+    (["technical writing", "tech writing", "api documentation"], "technical writing"),
+    (["latex", "tex", "overleaf"], "latex"),
+    # ── Other tools ────────────────────────────────────────────────────
+    (["kibana", "logstash", "elk stack", "elk"], "elk stack"),
+    (["memcached", "varnish"], "caching"),
+    (["activemq", "zeromq", "message queue", "message broker"], "message queue"),
+    (["grpc", "g rpc", "protocol buffers", "protobuf"], "grpc"),
+    (["soap", "soap api", "wsdl"], "soap"),
+    (["xml", "xslt", "xpath"], "xml"),
+    (["yaml", "yml"], "yaml"),
+    (["json", "json api"], "json"),
+    (["regex", "regular expressions", "regexp"], "regex"),
+    (["bash", "shell", "zsh", "powershell", "cmd"], "shell scripting"),
+    (["vim", "neovim", "emacs"], "vim"),
 ]
 
 # Build lookup: variant → canonical
@@ -868,26 +1154,289 @@ for variants, canonical in _SKILL_GROUPS:
     _SKILL_ALIASES[canonical] = canonical
 
 
+# ── Umbrella Skill Expansion ──────────────────────────────────────────
+# Maps umbrella/generic terms to their constituent technical skills.
+# When a job requires "HTML" and a candidate says "web development," we need
+# to know that web development implies HTML/CSS/JS knowledge.
+# Used in: (1) job parsing to expand vague requirements, (2) skill assessment
+# to boost scores when umbrella terms are detected on resumes.
+_UMBRELLA_SKILLS = {
+    "web development": [
+        ("html", 3), ("css", 3), ("javascript", 3), ("browser apis", 2),
+    ],
+    "frontend development": [
+        ("html", 3), ("css", 3), ("javascript", 3), ("browser apis", 2),
+        ("responsive design", 2),
+    ],
+    "frontend": [
+        ("html", 3), ("css", 3), ("javascript", 3), ("browser apis", 2),
+    ],
+    "backend development": [
+        ("rest api", 3), ("sql", 2),
+    ],
+    "backend": [
+        ("rest api", 3), ("sql", 2),
+    ],
+    "full-stack development": [
+        ("html", 3), ("css", 3), ("javascript", 3), ("rest api", 3),
+        ("sql", 2), ("browser apis", 2),
+    ],
+    "full stack development": [
+        ("html", 3), ("css", 3), ("javascript", 3), ("rest api", 3),
+        ("sql", 2), ("browser apis", 2),
+    ],
+    "full-stack": [
+        ("html", 3), ("css", 3), ("javascript", 3), ("rest api", 3),
+        ("sql", 2), ("browser apis", 2),
+    ],
+    "mobile development": [
+        ("rest api", 2),
+    ],
+    "mobile app development": [
+        ("rest api", 2),
+    ],
+    "data engineering": [
+        ("sql", 3), ("python", 3),
+    ],
+    "data analysis": [
+        ("sql", 2), ("python", 2),
+    ],
+    "devops": [
+        ("linux", 3), ("docker", 2), ("ci/cd", 2),
+    ],
+    "cloud engineering": [
+        ("linux", 2), ("docker", 2), ("ci/cd", 2),
+    ],
+    "site reliability": [
+        ("linux", 3), ("docker", 2), ("ci/cd", 3),
+    ],
+    "machine learning engineering": [
+        ("python", 3), ("machine learning", 3),
+    ],
+    "ui/ux development": [
+        ("html", 3), ("css", 3), ("javascript", 2), ("responsive design", 3),
+        ("accessibility", 2),
+    ],
+    "cms development": [
+        ("html", 3), ("css", 3), ("php", 2),
+    ],
+    "api development": [
+        ("rest api", 3),
+    ],
+    "database administration": [
+        ("sql", 4),
+    ],
+    "systems programming": [
+        ("c", 3), ("linux", 3),
+    ],
+    "security engineering": [
+        ("security", 3), ("linux", 2), ("networking", 2),
+    ],
+    "blockchain development": [
+        ("solidity", 3), ("web3", 2), ("javascript", 2),
+    ],
+    "game development": [
+        ("c++", 2), ("c#", 2),
+    ],
+    "data visualization": [
+        ("sql", 2), ("python", 2),
+    ],
+    "etl development": [
+        ("sql", 3), ("python", 3), ("etl/elt", 3),
+    ],
+    "cloud architecture": [
+        ("linux", 2), ("docker", 2), ("kubernetes", 2), ("ci/cd", 2),
+    ],
+    "mlops": [
+        ("python", 3), ("docker", 2), ("machine learning", 3),
+    ],
+    "platform engineering": [
+        ("linux", 3), ("docker", 3), ("kubernetes", 3), ("ci/cd", 3),
+    ],
+    "solutions architecture": [
+        ("rest api", 3), ("system design", 3), ("security", 2),
+    ],
+    "qa engineering": [
+        ("unit testing", 2), ("integration testing", 2),
+    ],
+    "embedded systems": [
+        ("c", 3), ("c++", 2), ("linux", 2),
+    ],
+    "network engineering": [
+        ("networking", 3), ("linux", 2), ("cisco", 2),
+    ],
+}
+
+
 # ── Skill Adjacency Graph ─────────────────────────────────────────────
 # Maps canonical skill → list of (related_skill, implied_min_depth) pairs.
-# When a candidate has skill A at depth X, related skills get a floor of implied_min_depth.
-# This prevents false negatives for foundational skills that frameworks inherently require.
+# When a candidate has skill A at depth X (>=3), related skills get a floor
+# of implied_min_depth. Prevents false negatives for foundational skills.
 _SKILL_ADJACENCY = {
-    "react": [("html", 3), ("css", 3), ("javascript", 3), ("browser apis", 2)],
+    # ── Frontend frameworks → foundation ──────────────────────────────
+    "react": [("html", 3), ("css", 3), ("javascript", 3), ("browser apis", 2), ("npm", 2)],
     "next.js": [("react", 3), ("html", 3), ("css", 3), ("javascript", 3), ("node.js", 2)],
+    "nuxt.js": [("vue", 3), ("html", 3), ("css", 3), ("javascript", 3), ("node.js", 2)],
     "vue": [("html", 3), ("css", 3), ("javascript", 3), ("browser apis", 2)],
     "angular": [("html", 3), ("css", 3), ("javascript", 3), ("typescript", 3), ("browser apis", 2)],
     "svelte": [("html", 3), ("css", 3), ("javascript", 3)],
-    "node.js": [("javascript", 3)],
-    "express": [("node.js", 3), ("javascript", 3)],
-    "fastapi": [("python", 3)],
-    "django": [("python", 3)],
-    "flask": [("python", 3)],
-    "typescript": [("javascript", 3)],
+    "gatsby": [("react", 3), ("html", 3), ("css", 3), ("javascript", 3), ("graphql", 2)],
+    "remix": [("react", 3), ("html", 3), ("css", 3), ("javascript", 3), ("node.js", 2)],
+    "jquery": [("html", 2), ("css", 2), ("javascript", 2)],
+    "tailwind": [("css", 3), ("html", 2)],
+    "bootstrap": [("css", 2), ("html", 2)],
+    "material ui": [("react", 2), ("css", 2)],
+    # ── CSS preprocessors ─────────────────────────────────────────────
     "sass/scss": [("css", 3)],
-    "kubernetes": [("docker", 2)],
+    "typescript": [("javascript", 3)],
+    # ── JS backend → JS ───────────────────────────────────────────────
+    "node.js": [("javascript", 3), ("npm", 2)],
+    "express": [("node.js", 3), ("javascript", 3), ("rest api", 2)],
+    "nestjs": [("node.js", 3), ("typescript", 3), ("javascript", 3), ("rest api", 2)],
+    # ── Python frameworks → Python ────────────────────────────────────
+    "fastapi": [("python", 3), ("rest api", 2)],
+    "django": [("python", 3), ("sql", 2), ("rest api", 2)],
+    "flask": [("python", 3)],
+    "celery": [("python", 3)],
+    # ── PHP frameworks → PHP ──────────────────────────────────────────
+    "laravel": [("php", 3), ("sql", 2), ("rest api", 2)],
+    "symfony": [("php", 3), ("sql", 2)],
+    "codeigniter": [("php", 3), ("sql", 2)],
+    "wordpress": [("php", 2), ("html", 2), ("css", 2), ("mysql", 2)],
+    "drupal": [("php", 2), ("html", 2), ("css", 2), ("mysql", 2)],
+    # ── Ruby → Ruby ───────────────────────────────────────────────────
+    "rails": [("ruby", 3), ("sql", 2), ("html", 2), ("css", 2), ("rest api", 2)],
+    "sinatra": [("ruby", 3)],
+    # ── Java frameworks → Java ────────────────────────────────────────
+    "spring boot": [("java", 3), ("sql", 2), ("rest api", 2)],
+    # ── .NET → C# ─────────────────────────────────────────────────────
+    ".net": [("c#", 3), ("sql", 2)],
+    # ── Go frameworks → Go ────────────────────────────────────────────
+    "gin": [("go", 3), ("rest api", 2)],
+    "fiber": [("go", 3), ("rest api", 2)],
+    # ── Rust frameworks → Rust ────────────────────────────────────────
+    "actix": [("rust", 3)],
+    # ── Elixir → Elixir ──────────────────────────────────────────────
+    "phoenix": [("elixir", 3)],
+    # ── Mobile → foundation ───────────────────────────────────────────
+    "react native": [("react", 3), ("javascript", 3), ("rest api", 2)],
+    "flutter": [("dart", 3), ("rest api", 2)],
+    "android": [("kotlin", 2), ("java", 2), ("rest api", 2)],
+    "ios": [("swift", 2), ("rest api", 2)],
+    "expo": [("react native", 3), ("react", 3), ("javascript", 3)],
+    "ionic": [("html", 2), ("css", 2), ("javascript", 2), ("angular", 2)],
+    # ── Data / ML → Python + foundation ───────────────────────────────
+    "pandas": [("python", 3)],
+    "numpy": [("python", 3)],
+    "scipy": [("python", 3), ("numpy", 2)],
+    "matplotlib": [("python", 2)],
+    "tensorflow": [("python", 3), ("machine learning", 3)],
+    "pytorch": [("python", 3), ("machine learning", 3)],
+    "scikit-learn": [("python", 3), ("machine learning", 2)],
+    "keras": [("python", 3), ("tensorflow", 2), ("machine learning", 2)],
+    "opencv": [("python", 2), ("computer vision", 2)],
+    "spark": [("python", 2), ("sql", 2)],
+    "hadoop": [("linux", 2)],
+    "airflow": [("python", 3)],
+    "dbt": [("sql", 3)],
+    "jupyter": [("python", 2)],
+    "llm/ai": [("python", 2)],
+    # ── ORM → language + SQL ──────────────────────────────────────────
+    "prisma": [("sql", 2), ("typescript", 2)],
+    "sequelize": [("sql", 2), ("javascript", 2)],
+    "sqlalchemy": [("sql", 2), ("python", 3)],
+    "typeorm": [("sql", 2), ("typescript", 2)],
+    # ── DB-specific → SQL ─────────────────────────────────────────────
+    "postgresql": [("sql", 3)],
+    "mysql": [("sql", 3)],
+    "sqlite": [("sql", 2)],
+    "oracle": [("sql", 3)],
+    # ── DevOps / Cloud adjacencies ────────────────────────────────────
+    "kubernetes": [("docker", 3), ("linux", 2)],
+    "terraform": [("linux", 2)],
+    "ansible": [("linux", 3)],
+    "docker": [("linux", 2)],
+    "ecs": [("aws", 2), ("docker", 2)],
+    "lambda": [("aws", 2)],
+    "ec2": [("aws", 2), ("linux", 2)],
+    "s3": [("aws", 2)],
+    "rds": [("aws", 2), ("sql", 2)],
+    "cloudformation": [("aws", 3)],
+    "prometheus": [("linux", 2)],
+    "grafana": [("linux", 2)],
+    # ── API protocols ─────────────────────────────────────────────────
     "graphql": [("rest api", 2)],
+    "websockets": [("javascript", 2)],
+    # ── Architecture concepts ─────────────────────────────────────────
     "microservices": [("rest api", 3), ("docker", 2)],
+    "system design": [("rest api", 2)],
+    # ── Testing → language ────────────────────────────────────────────
+    "jest": [("javascript", 3)],
+    "pytest": [("python", 3)],
+    "junit": [("java", 3)],
+    "cypress": [("javascript", 3)],
+    "playwright": [("javascript", 2)],
+    "rspec": [("ruby", 3)],
+    "phpunit": [("php", 3)],
+    "vitest": [("javascript", 3)],
+    "testing library": [("react", 2), ("javascript", 3)],
+    # ── DB tools → database ───────────────────────────────────────────
+    "firebase": [("javascript", 2)],
+    "supabase": [("postgresql", 2), ("sql", 2)],
+    "elasticsearch": [("rest api", 2)],
+    # ── Blockchain → foundation ─────────────────────────────────────────
+    "solidity": [("ethereum", 3), ("javascript", 2), ("smart contracts", 3)],
+    "web3": [("javascript", 3), ("ethereum", 2)],
+    "hardhat": [("solidity", 3), ("javascript", 2)],
+    # ── Game Dev → foundation ──────────────────────────────────────────
+    "unity": [("c#", 3)],
+    "unreal engine": [("c++", 3)],
+    "godot": [("python", 2)],
+    # ── Data platforms → foundation ────────────────────────────────────
+    "snowflake": [("sql", 3)],
+    "bigquery": [("sql", 3), ("gcp", 2)],
+    "databricks": [("python", 3), ("spark", 3), ("sql", 2)],
+    "redshift": [("sql", 3), ("aws", 2)],
+    "fivetran": [("sql", 2), ("etl/elt", 2)],
+    "delta lake": [("spark", 3), ("python", 2)],
+    # ── MLOps / LLMOps → foundation ───────────────────────────────────
+    "langchain": [("python", 3), ("llm/ai", 3)],
+    "llamaindex": [("python", 3), ("llm/ai", 3)],
+    "mlflow": [("python", 3), ("machine learning", 2)],
+    "wandb": [("python", 3), ("machine learning", 2)],
+    "hugging face": [("python", 3), ("machine learning", 3), ("llm/ai", 2)],
+    "sagemaker": [("aws", 3), ("python", 2), ("machine learning", 2)],
+    "vertex ai": [("gcp", 3), ("python", 2), ("machine learning", 2)],
+    "pinecone": [("python", 2), ("vector database", 3)],
+    "chroma": [("python", 2), ("vector database", 3)],
+    "rag": [("llm/ai", 3), ("python", 3), ("vector database", 2)],
+    # ── BI tools → foundation ──────────────────────────────────────────
+    "tableau": [("sql", 2)],
+    "power bi": [("sql", 2)],
+    "looker": [("sql", 3)],
+    "qlik": [("sql", 2)],
+    "metabase": [("sql", 2)],
+    # ── Cybersecurity → foundation ─────────────────────────────────────
+    "splunk": [("linux", 2), ("siem", 3)],
+    "burp suite": [("security", 3), ("penetration testing", 3)],
+    "metasploit": [("security", 3), ("penetration testing", 3), ("linux", 2)],
+    "kali linux": [("linux", 3), ("security", 2), ("penetration testing", 2)],
+    # ── Enterprise / CRM → foundation ──────────────────────────────────
+    "salesforce": [("sql", 2), ("rest api", 2)],
+    # ── Networking → foundation ────────────────────────────────────────
+    "cisco": [("networking", 3), ("linux", 2)],
+    "load balancing": [("networking", 2), ("linux", 2)],
+    "dns": [("networking", 2)],
+    # ── Low-code → foundation ──────────────────────────────────────────
+    "power apps": [("microsoft dynamics", 2)],
+    "power automate": [("microsoft office", 2)],
+    "retool": [("sql", 2), ("javascript", 2)],
+    # ── Messaging → foundation ─────────────────────────────────────────
+    "grpc": [("rest api", 2)],
+    # ── Methodology adjacency ──────────────────────────────────────────
+    "scrum": [("agile", 3), ("jira", 2)],
+    "kanban": [("agile", 3)],
+    "safe": [("agile", 3), ("scrum", 2)],
 }
 
 
@@ -895,6 +1444,506 @@ def _normalize_skill(name: str) -> str:
     """Normalize a skill name for matching."""
     n = name.lower().strip().rstrip(".")
     return _SKILL_ALIASES.get(n, n)
+
+
+# ── Skill Transferability ──────────────────────────────────────────────
+# When a job needs skill A but the candidate has skill B, this map defines
+# how transferable B is to A. Score 0.0-1.0 (1.0 = identical, 0.7 = highly transferable).
+# Bidirectional: if react→vue is 0.7, vue→react is also 0.7.
+_SKILL_TRANSFERABILITY = {
+    # Frontend frameworks (high transferability)
+    ("react", "vue"): 0.70,
+    ("react", "angular"): 0.60,
+    ("react", "svelte"): 0.65,
+    ("vue", "angular"): 0.60,
+    ("vue", "svelte"): 0.65,
+    ("angular", "svelte"): 0.55,
+    ("next.js", "nuxt.js"): 0.70,
+    ("next.js", "remix"): 0.75,
+    ("next.js", "gatsby"): 0.65,
+    # Backend languages (moderate transferability)
+    ("python", "ruby"): 0.55,
+    ("python", "javascript"): 0.45,
+    ("python", "go"): 0.40,
+    ("java", "c#"): 0.70,
+    ("java", "kotlin"): 0.75,
+    ("java", "scala"): 0.60,
+    ("c#", "java"): 0.70,
+    ("kotlin", "java"): 0.75,
+    ("ruby", "python"): 0.55,
+    ("go", "rust"): 0.45,
+    ("typescript", "javascript"): 0.90,
+    ("javascript", "typescript"): 0.80,
+    # Backend frameworks (same language = higher transfer)
+    ("django", "flask"): 0.75,
+    ("django", "fastapi"): 0.70,
+    ("flask", "fastapi"): 0.75,
+    ("express", "nestjs"): 0.65,
+    ("express", "fastapi"): 0.40,
+    ("spring boot", ".net"): 0.50,
+    ("laravel", "symfony"): 0.70,
+    ("rails", "django"): 0.50,
+    # Databases (high transferability within type)
+    ("postgresql", "mysql"): 0.85,
+    ("postgresql", "oracle"): 0.70,
+    ("mysql", "oracle"): 0.70,
+    ("mysql", "postgresql"): 0.85,
+    ("mongodb", "couchbase"): 0.65,
+    ("mongodb", "dynamodb"): 0.55,
+    ("mongodb", "firestore"): 0.55,
+    ("redis", "memcached"): 0.70,
+    # Cloud (moderate transferability)
+    ("aws", "gcp"): 0.60,
+    ("aws", "azure"): 0.60,
+    ("gcp", "azure"): 0.60,
+    # Data platforms
+    ("snowflake", "bigquery"): 0.75,
+    ("snowflake", "redshift"): 0.75,
+    ("bigquery", "redshift"): 0.70,
+    ("databricks", "spark"): 0.80,
+    # Mobile
+    ("react native", "flutter"): 0.55,
+    ("ios", "android"): 0.45,
+    ("swift", "kotlin"): 0.40,
+    # CI/CD tools (high transferability)
+    ("ci/cd", "docker"): 0.40,
+    # BI tools
+    ("tableau", "power bi"): 0.75,
+    ("tableau", "looker"): 0.65,
+    ("power bi", "looker"): 0.65,
+    # ML frameworks
+    ("tensorflow", "pytorch"): 0.70,
+    ("pytorch", "tensorflow"): 0.70,
+    ("scikit-learn", "tensorflow"): 0.45,
+    # CRM / ERP
+    ("salesforce", "hubspot"): 0.50,
+    ("salesforce", "microsoft dynamics"): 0.45,
+    # Testing frameworks
+    ("jest", "vitest"): 0.85,
+    ("jest", "mocha"): 0.70,
+    ("cypress", "playwright"): 0.80,
+    ("selenium", "playwright"): 0.65,
+    ("selenium", "cypress"): 0.65,
+    ("pytest", "junit"): 0.50,
+    # Methodology
+    ("scrum", "kanban"): 0.70,
+    ("scrum", "safe"): 0.65,
+    ("agile", "scrum"): 0.85,
+    ("agile", "kanban"): 0.80,
+    # Vector DBs
+    ("pinecone", "chroma"): 0.80,
+    ("pinecone", "weaviate"): 0.75,
+    ("pinecone", "milvus"): 0.75,
+    ("chroma", "weaviate"): 0.75,
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Business / Strategy / Operations skill transferability
+    # ═══════════════════════════════════════════════════════════════════
+
+    # Client/Customer Experience (high transferability within CX domain)
+    ("client experience strategy", "customer experience"): 0.85,
+    ("client experience strategy", "customer success"): 0.65,
+    ("client experience strategy", "service design"): 0.60,
+    ("customer experience", "customer success"): 0.70,
+    ("customer experience", "user experience"): 0.55,
+    ("customer success", "customer service"): 0.60,
+
+    # Account & Business Development (high internal transferability)
+    ("account management", "key account management"): 0.90,
+    ("account management", "client management"): 0.80,
+    ("account management", "relationship management"): 0.70,
+    ("account management", "customer success"): 0.60,
+    ("business development", "sales strategy"): 0.75,
+    ("business development", "partnership development"): 0.65,
+    ("business development", "account management"): 0.55,
+    ("sales strategy", "go-to-market strategy"): 0.70,
+    ("partnership development", "vendor management"): 0.55,
+
+    # Strategy & Planning (moderate cross-transferability)
+    ("strategic planning", "business strategy"): 0.85,
+    ("strategic planning", "go-to-market strategy"): 0.65,
+    ("strategic planning", "workforce planning"): 0.50,
+    ("business strategy", "go-to-market strategy"): 0.70,
+    ("business strategy", "digital transformation"): 0.50,
+
+    # Operations & Process (high within ops domain)
+    ("operational excellence", "process improvement"): 0.80,
+    ("operational excellence", "six sigma"): 0.65,
+    ("operational excellence", "lean"): 0.65,
+    ("process improvement", "six sigma"): 0.75,
+    ("process improvement", "lean"): 0.75,
+    ("change management", "organizational development"): 0.60,
+    ("change management", "transformation management"): 0.80,
+    ("governance", "compliance"): 0.65,
+    ("governance", "risk management"): 0.60,
+
+    # Experience Design & Innovation
+    ("experience design", "service design"): 0.80,
+    ("experience design", "user experience"): 0.65,
+    ("experience design", "design thinking"): 0.70,
+    ("service design", "design thinking"): 0.75,
+    ("innovation", "design thinking"): 0.55,
+
+    # Leadership & Team Management
+    ("team leadership", "people management"): 0.85,
+    ("team leadership", "people development"): 0.75,
+    ("people management", "people development"): 0.80,
+    ("people management", "talent management"): 0.65,
+    ("talent management", "talent acquisition"): 0.55,
+
+    # Stakeholder Engagement
+    ("stakeholder engagement", "stakeholder management"): 0.90,
+    ("stakeholder engagement", "executive communication"): 0.60,
+    ("stakeholder management", "client management"): 0.65,
+    ("stakeholder management", "relationship management"): 0.75,
+    ("executive communication", "executive storytelling"): 0.80,
+
+    # Program & Project Management
+    ("program management", "project management"): 0.80,
+    ("program management", "portfolio management"): 0.70,
+    ("project management", "delivery management"): 0.65,
+    ("delivery management", "release management"): 0.55,
+
+    # Marketing & Brand
+    ("marketing strategy", "brand strategy"): 0.70,
+    ("marketing strategy", "digital marketing"): 0.60,
+    ("brand strategy", "brand management"): 0.85,
+    ("content strategy", "content marketing"): 0.80,
+    ("digital marketing", "content marketing"): 0.55,
+
+    # Finance & Analytics
+    ("financial analysis", "business analysis"): 0.60,
+    ("financial analysis", "data analysis"): 0.55,
+    ("business analysis", "data analysis"): 0.65,
+    ("business analysis", "requirements analysis"): 0.70,
+
+    # HR & People
+    ("talent acquisition", "recruitment"): 0.90,
+    ("talent acquisition", "employer branding"): 0.50,
+    ("performance management", "people development"): 0.65,
+    ("compensation & benefits", "total rewards"): 0.85,
+
+    # Cross-domain: Business ↔ Tech
+    ("product management", "project management"): 0.50,
+    ("product management", "business analysis"): 0.55,
+    ("data analysis", "sql"): 0.40,
+    ("business intelligence", "data analysis"): 0.70,
+    ("business intelligence", "tableau"): 0.50,
+    ("business intelligence", "power bi"): 0.50,
+}
+
+
+def _get_transferability(skill_a: str, skill_b: str) -> float:
+    """Get transferability score between two skills (0.0 if not transferable)."""
+    a = _normalize_skill(skill_a)
+    b = _normalize_skill(skill_b)
+    return _SKILL_TRANSFERABILITY.get((a, b), _SKILL_TRANSFERABILITY.get((b, a), 0.0))
+
+
+# ── Job Role → Expected Skill Stacks ──────────────────────────────────
+# Maps common job titles to their expected core skills.
+# Used by job parsing to auto-suggest skills when a recruiter creates a job
+# with just a title and no detailed skill requirements.
+_ROLE_SKILL_STACKS = {
+    "frontend developer": [
+        {"skill": "HTML", "min_depth": 3, "weight": 0.9, "category": "language"},
+        {"skill": "CSS", "min_depth": 3, "weight": 0.9, "category": "language"},
+        {"skill": "JavaScript", "min_depth": 3, "weight": 1.0, "category": "language"},
+        {"skill": "React", "min_depth": 3, "weight": 0.8, "category": "framework"},
+        {"skill": "TypeScript", "min_depth": 2, "weight": 0.7, "category": "language"},
+        {"skill": "Git", "min_depth": 2, "weight": 0.6, "category": "tool"},
+        {"skill": "Responsive Design", "min_depth": 2, "weight": 0.7, "category": "concept"},
+    ],
+    "backend developer": [
+        {"skill": "Python", "min_depth": 3, "weight": 0.9, "category": "language"},
+        {"skill": "SQL", "min_depth": 3, "weight": 0.9, "category": "language"},
+        {"skill": "REST API", "min_depth": 3, "weight": 0.9, "category": "concept"},
+        {"skill": "Git", "min_depth": 2, "weight": 0.6, "category": "tool"},
+        {"skill": "Docker", "min_depth": 2, "weight": 0.6, "category": "devops"},
+        {"skill": "PostgreSQL", "min_depth": 2, "weight": 0.7, "category": "database"},
+    ],
+    "full stack developer": [
+        {"skill": "HTML", "min_depth": 3, "weight": 0.8, "category": "language"},
+        {"skill": "CSS", "min_depth": 3, "weight": 0.8, "category": "language"},
+        {"skill": "JavaScript", "min_depth": 3, "weight": 1.0, "category": "language"},
+        {"skill": "React", "min_depth": 3, "weight": 0.8, "category": "framework"},
+        {"skill": "Node.js", "min_depth": 3, "weight": 0.8, "category": "framework"},
+        {"skill": "SQL", "min_depth": 3, "weight": 0.8, "category": "language"},
+        {"skill": "REST API", "min_depth": 3, "weight": 0.8, "category": "concept"},
+        {"skill": "Git", "min_depth": 2, "weight": 0.6, "category": "tool"},
+    ],
+    "data engineer": [
+        {"skill": "SQL", "min_depth": 4, "weight": 1.0, "category": "language"},
+        {"skill": "Python", "min_depth": 3, "weight": 0.9, "category": "language"},
+        {"skill": "Spark", "min_depth": 3, "weight": 0.8, "category": "data"},
+        {"skill": "ETL/ELT", "min_depth": 3, "weight": 0.9, "category": "concept"},
+        {"skill": "Airflow", "min_depth": 2, "weight": 0.7, "category": "data"},
+        {"skill": "Docker", "min_depth": 2, "weight": 0.5, "category": "devops"},
+    ],
+    "data scientist": [
+        {"skill": "Python", "min_depth": 4, "weight": 1.0, "category": "language"},
+        {"skill": "SQL", "min_depth": 3, "weight": 0.8, "category": "language"},
+        {"skill": "Machine Learning", "min_depth": 3, "weight": 1.0, "category": "ai"},
+        {"skill": "Pandas", "min_depth": 3, "weight": 0.8, "category": "data"},
+        {"skill": "Scikit-learn", "min_depth": 3, "weight": 0.7, "category": "ai"},
+        {"skill": "Jupyter", "min_depth": 2, "weight": 0.5, "category": "tool"},
+    ],
+    "data analyst": [
+        {"skill": "SQL", "min_depth": 3, "weight": 1.0, "category": "language"},
+        {"skill": "Python", "min_depth": 2, "weight": 0.7, "category": "language"},
+        {"skill": "Tableau", "min_depth": 2, "weight": 0.7, "category": "tool"},
+        {"skill": "Excel", "min_depth": 3, "weight": 0.7, "category": "general_tool"},
+        {"skill": "Data Science", "min_depth": 2, "weight": 0.6, "category": "data"},
+    ],
+    "machine learning engineer": [
+        {"skill": "Python", "min_depth": 4, "weight": 1.0, "category": "language"},
+        {"skill": "Machine Learning", "min_depth": 4, "weight": 1.0, "category": "ai"},
+        {"skill": "TensorFlow", "min_depth": 3, "weight": 0.7, "category": "ai"},
+        {"skill": "PyTorch", "min_depth": 3, "weight": 0.7, "category": "ai"},
+        {"skill": "SQL", "min_depth": 2, "weight": 0.6, "category": "language"},
+        {"skill": "Docker", "min_depth": 2, "weight": 0.6, "category": "devops"},
+    ],
+    "ai engineer": [
+        {"skill": "Python", "min_depth": 4, "weight": 1.0, "category": "language"},
+        {"skill": "LLM/AI", "min_depth": 3, "weight": 1.0, "category": "ai"},
+        {"skill": "Machine Learning", "min_depth": 3, "weight": 0.8, "category": "ai"},
+        {"skill": "LangChain", "min_depth": 2, "weight": 0.6, "category": "ai"},
+        {"skill": "REST API", "min_depth": 2, "weight": 0.6, "category": "concept"},
+        {"skill": "Docker", "min_depth": 2, "weight": 0.5, "category": "devops"},
+    ],
+    "devops engineer": [
+        {"skill": "Linux", "min_depth": 4, "weight": 1.0, "category": "devops"},
+        {"skill": "Docker", "min_depth": 3, "weight": 0.9, "category": "devops"},
+        {"skill": "Kubernetes", "min_depth": 3, "weight": 0.8, "category": "devops"},
+        {"skill": "CI/CD", "min_depth": 3, "weight": 0.9, "category": "devops"},
+        {"skill": "Terraform", "min_depth": 2, "weight": 0.7, "category": "devops"},
+        {"skill": "AWS", "min_depth": 2, "weight": 0.7, "category": "cloud"},
+        {"skill": "Python", "min_depth": 2, "weight": 0.5, "category": "language"},
+    ],
+    "site reliability engineer": [
+        {"skill": "Linux", "min_depth": 4, "weight": 1.0, "category": "devops"},
+        {"skill": "Docker", "min_depth": 3, "weight": 0.8, "category": "devops"},
+        {"skill": "Kubernetes", "min_depth": 3, "weight": 0.9, "category": "devops"},
+        {"skill": "CI/CD", "min_depth": 3, "weight": 0.8, "category": "devops"},
+        {"skill": "Python", "min_depth": 3, "weight": 0.7, "category": "language"},
+        {"skill": "Prometheus", "min_depth": 2, "weight": 0.6, "category": "devops"},
+        {"skill": "Grafana", "min_depth": 2, "weight": 0.5, "category": "devops"},
+    ],
+    "platform engineer": [
+        {"skill": "Linux", "min_depth": 4, "weight": 1.0, "category": "devops"},
+        {"skill": "Kubernetes", "min_depth": 4, "weight": 1.0, "category": "devops"},
+        {"skill": "Docker", "min_depth": 3, "weight": 0.9, "category": "devops"},
+        {"skill": "CI/CD", "min_depth": 3, "weight": 0.8, "category": "devops"},
+        {"skill": "Terraform", "min_depth": 3, "weight": 0.8, "category": "devops"},
+        {"skill": "Python", "min_depth": 2, "weight": 0.6, "category": "language"},
+    ],
+    "cloud architect": [
+        {"skill": "AWS", "min_depth": 4, "weight": 1.0, "category": "cloud"},
+        {"skill": "Docker", "min_depth": 3, "weight": 0.7, "category": "devops"},
+        {"skill": "Kubernetes", "min_depth": 3, "weight": 0.7, "category": "devops"},
+        {"skill": "Terraform", "min_depth": 3, "weight": 0.8, "category": "devops"},
+        {"skill": "System Design", "min_depth": 4, "weight": 0.9, "category": "concept"},
+        {"skill": "Security", "min_depth": 3, "weight": 0.7, "category": "concept"},
+        {"skill": "Linux", "min_depth": 3, "weight": 0.6, "category": "devops"},
+    ],
+    "solutions architect": [
+        {"skill": "System Design", "min_depth": 4, "weight": 1.0, "category": "concept"},
+        {"skill": "REST API", "min_depth": 3, "weight": 0.8, "category": "concept"},
+        {"skill": "AWS", "min_depth": 3, "weight": 0.7, "category": "cloud"},
+        {"skill": "SQL", "min_depth": 3, "weight": 0.6, "category": "language"},
+        {"skill": "Security", "min_depth": 2, "weight": 0.6, "category": "concept"},
+        {"skill": "Docker", "min_depth": 2, "weight": 0.5, "category": "devops"},
+    ],
+    "security engineer": [
+        {"skill": "Security", "min_depth": 4, "weight": 1.0, "category": "concept"},
+        {"skill": "Linux", "min_depth": 3, "weight": 0.8, "category": "devops"},
+        {"skill": "Networking", "min_depth": 3, "weight": 0.7, "category": "concept"},
+        {"skill": "Python", "min_depth": 2, "weight": 0.6, "category": "language"},
+        {"skill": "Penetration Testing", "min_depth": 2, "weight": 0.6, "category": "concept"},
+        {"skill": "SIEM", "min_depth": 2, "weight": 0.5, "category": "tool"},
+    ],
+    "qa engineer": [
+        {"skill": "Unit Testing", "min_depth": 3, "weight": 0.9, "category": "testing"},
+        {"skill": "Integration Testing", "min_depth": 3, "weight": 0.8, "category": "testing"},
+        {"skill": "Selenium", "min_depth": 2, "weight": 0.7, "category": "testing"},
+        {"skill": "Python", "min_depth": 2, "weight": 0.6, "category": "language"},
+        {"skill": "SQL", "min_depth": 2, "weight": 0.5, "category": "language"},
+        {"skill": "CI/CD", "min_depth": 2, "weight": 0.5, "category": "devops"},
+    ],
+    "mobile developer": [
+        {"skill": "React Native", "min_depth": 3, "weight": 0.8, "category": "mobile"},
+        {"skill": "JavaScript", "min_depth": 3, "weight": 0.8, "category": "language"},
+        {"skill": "REST API", "min_depth": 3, "weight": 0.8, "category": "concept"},
+        {"skill": "Git", "min_depth": 2, "weight": 0.5, "category": "tool"},
+    ],
+    "android developer": [
+        {"skill": "Kotlin", "min_depth": 3, "weight": 1.0, "category": "language"},
+        {"skill": "Android", "min_depth": 3, "weight": 1.0, "category": "mobile"},
+        {"skill": "Java", "min_depth": 2, "weight": 0.6, "category": "language"},
+        {"skill": "REST API", "min_depth": 3, "weight": 0.7, "category": "concept"},
+        {"skill": "SQL", "min_depth": 2, "weight": 0.5, "category": "language"},
+    ],
+    "ios developer": [
+        {"skill": "Swift", "min_depth": 3, "weight": 1.0, "category": "language"},
+        {"skill": "iOS", "min_depth": 3, "weight": 1.0, "category": "mobile"},
+        {"skill": "REST API", "min_depth": 3, "weight": 0.7, "category": "concept"},
+        {"skill": "Git", "min_depth": 2, "weight": 0.5, "category": "tool"},
+    ],
+    "product manager": [
+        {"skill": "Jira", "min_depth": 3, "weight": 0.8, "category": "tool"},
+        {"skill": "Agile", "min_depth": 3, "weight": 0.9, "category": "concept"},
+        {"skill": "SQL", "min_depth": 2, "weight": 0.5, "category": "language"},
+    ],
+    "technical writer": [
+        {"skill": "Technical Writing", "min_depth": 4, "weight": 1.0, "category": "tool"},
+        {"skill": "Markdown", "min_depth": 3, "weight": 0.7, "category": "tool"},
+        {"skill": "Git", "min_depth": 2, "weight": 0.5, "category": "tool"},
+    ],
+    "blockchain developer": [
+        {"skill": "Solidity", "min_depth": 3, "weight": 1.0, "category": "language"},
+        {"skill": "Ethereum", "min_depth": 3, "weight": 0.9, "category": "concept"},
+        {"skill": "Web3", "min_depth": 3, "weight": 0.8, "category": "framework"},
+        {"skill": "JavaScript", "min_depth": 3, "weight": 0.7, "category": "language"},
+        {"skill": "Smart Contracts", "min_depth": 3, "weight": 0.9, "category": "concept"},
+    ],
+    "database administrator": [
+        {"skill": "SQL", "min_depth": 5, "weight": 1.0, "category": "language"},
+        {"skill": "PostgreSQL", "min_depth": 4, "weight": 0.8, "category": "database"},
+        {"skill": "Linux", "min_depth": 3, "weight": 0.6, "category": "devops"},
+        {"skill": "Python", "min_depth": 2, "weight": 0.4, "category": "language"},
+    ],
+    "network engineer": [
+        {"skill": "Networking", "min_depth": 4, "weight": 1.0, "category": "concept"},
+        {"skill": "Cisco", "min_depth": 3, "weight": 0.8, "category": "tool"},
+        {"skill": "Linux", "min_depth": 3, "weight": 0.7, "category": "devops"},
+        {"skill": "DNS", "min_depth": 3, "weight": 0.6, "category": "concept"},
+        {"skill": "VPN", "min_depth": 2, "weight": 0.5, "category": "concept"},
+        {"skill": "Load Balancing", "min_depth": 2, "weight": 0.5, "category": "concept"},
+    ],
+    "salesforce developer": [
+        {"skill": "Salesforce", "min_depth": 4, "weight": 1.0, "category": "tool"},
+        {"skill": "SQL", "min_depth": 2, "weight": 0.6, "category": "language"},
+        {"skill": "JavaScript", "min_depth": 2, "weight": 0.5, "category": "language"},
+        {"skill": "REST API", "min_depth": 2, "weight": 0.5, "category": "concept"},
+    ],
+    "sap consultant": [
+        {"skill": "SAP", "min_depth": 4, "weight": 1.0, "category": "tool"},
+        {"skill": "SQL", "min_depth": 2, "weight": 0.5, "category": "language"},
+    ],
+    "ux designer": [
+        {"skill": "Figma", "min_depth": 4, "weight": 1.0, "category": "tool"},
+        {"skill": "HTML", "min_depth": 2, "weight": 0.5, "category": "language"},
+        {"skill": "CSS", "min_depth": 2, "weight": 0.5, "category": "language"},
+        {"skill": "Responsive Design", "min_depth": 3, "weight": 0.8, "category": "concept"},
+        {"skill": "Accessibility", "min_depth": 2, "weight": 0.6, "category": "concept"},
+    ],
+    "ui developer": [
+        {"skill": "HTML", "min_depth": 4, "weight": 1.0, "category": "language"},
+        {"skill": "CSS", "min_depth": 4, "weight": 1.0, "category": "language"},
+        {"skill": "JavaScript", "min_depth": 3, "weight": 0.9, "category": "language"},
+        {"skill": "Figma", "min_depth": 2, "weight": 0.6, "category": "tool"},
+        {"skill": "Responsive Design", "min_depth": 3, "weight": 0.8, "category": "concept"},
+        {"skill": "Accessibility", "min_depth": 2, "weight": 0.7, "category": "concept"},
+    ],
+    "wordpress developer": [
+        {"skill": "WordPress", "min_depth": 4, "weight": 1.0, "category": "framework"},
+        {"skill": "PHP", "min_depth": 3, "weight": 0.8, "category": "language"},
+        {"skill": "HTML", "min_depth": 3, "weight": 0.7, "category": "language"},
+        {"skill": "CSS", "min_depth": 3, "weight": 0.7, "category": "language"},
+        {"skill": "JavaScript", "min_depth": 2, "weight": 0.6, "category": "language"},
+        {"skill": "MySQL", "min_depth": 2, "weight": 0.5, "category": "database"},
+    ],
+    "embedded engineer": [
+        {"skill": "C", "min_depth": 4, "weight": 1.0, "category": "language"},
+        {"skill": "C++", "min_depth": 3, "weight": 0.8, "category": "language"},
+        {"skill": "Linux", "min_depth": 3, "weight": 0.7, "category": "devops"},
+        {"skill": "Python", "min_depth": 2, "weight": 0.4, "category": "language"},
+    ],
+}
+
+
+# Build a lookup with normalized keys and common variations
+_ROLE_ALIASES = {}
+for role_key in _ROLE_SKILL_STACKS:
+    _ROLE_ALIASES[role_key] = role_key
+    # Generate common variations: "senior X", "lead X", "junior X", "sr. X", "X engineer" etc.
+    _ROLE_ALIASES[f"senior {role_key}"] = role_key
+    _ROLE_ALIASES[f"lead {role_key}"] = role_key
+    _ROLE_ALIASES[f"junior {role_key}"] = role_key
+    _ROLE_ALIASES[f"sr. {role_key}"] = role_key
+    _ROLE_ALIASES[f"sr {role_key}"] = role_key
+    _ROLE_ALIASES[f"principal {role_key}"] = role_key
+    _ROLE_ALIASES[f"staff {role_key}"] = role_key
+
+
+def get_role_skill_stack(title: str) -> list:
+    """Look up expected skill stack for a job title. Returns empty list if not found."""
+    if not title:
+        return []
+    title_lower = title.lower().strip()
+    # Direct match
+    role_key = _ROLE_ALIASES.get(title_lower)
+    if role_key:
+        return _ROLE_SKILL_STACKS[role_key]
+    # Fuzzy: check if any role key is contained in the title
+    for key in _ROLE_SKILL_STACKS:
+        if key in title_lower:
+            return _ROLE_SKILL_STACKS[key]
+    return []
+
+
+# ── Certification → Skill Boost Mapping ────────────────────────────────
+# When a candidate has a certification, the specified skills get a depth boost.
+# Format: cert_keyword → [(skill, depth_boost)]
+_CERTIFICATION_BOOSTS = {
+    "aws solutions architect": [("aws", 2), ("system design", 1), ("security", 1)],
+    "aws developer": [("aws", 2), ("lambda", 1), ("rest api", 1)],
+    "aws sysops": [("aws", 2), ("linux", 1)],
+    "aws devops": [("aws", 2), ("ci/cd", 1), ("docker", 1)],
+    "aws cloud practitioner": [("aws", 1)],
+    "azure administrator": [("azure", 2), ("linux", 1)],
+    "azure developer": [("azure", 2)],
+    "azure solutions architect": [("azure", 2), ("system design", 1)],
+    "google cloud professional": [("gcp", 2)],
+    "google cloud architect": [("gcp", 2), ("system design", 1)],
+    "google cloud engineer": [("gcp", 2), ("linux", 1)],
+    "cka": [("kubernetes", 2), ("docker", 1), ("linux", 1)],
+    "ckad": [("kubernetes", 2), ("docker", 1)],
+    "certified kubernetes": [("kubernetes", 2), ("docker", 1)],
+    "docker certified": [("docker", 2), ("linux", 1)],
+    "terraform associate": [("terraform", 2), ("linux", 1)],
+    "hashicorp certified": [("terraform", 2)],
+    "pmp": [("agile", 1), ("jira", 1)],
+    "csm": [("scrum", 2), ("agile", 1)],
+    "certified scrum master": [("scrum", 2), ("agile", 1)],
+    "safe agilist": [("safe", 2), ("agile", 1)],
+    "cisco ccna": [("cisco", 2), ("networking", 2)],
+    "cisco ccnp": [("cisco", 3), ("networking", 3)],
+    "ccna": [("cisco", 2), ("networking", 2)],
+    "ccnp": [("cisco", 3), ("networking", 3)],
+    "comptia security+": [("security", 2)],
+    "comptia network+": [("networking", 2)],
+    "oscp": [("penetration testing", 3), ("security", 2), ("linux", 2)],
+    "cissp": [("security", 3)],
+    "ceh": [("security", 2), ("penetration testing", 2)],
+    "salesforce certified": [("salesforce", 2)],
+    "salesforce administrator": [("salesforce", 2)],
+    "salesforce developer": [("salesforce", 2), ("rest api", 1)],
+    "sap certified": [("sap", 2)],
+    "oracle certified": [("oracle", 2), ("sql", 1)],
+    "microsoft certified": [("microsoft office", 1)],
+    "az-900": [("azure", 1)],
+    "az-104": [("azure", 2)],
+    "az-204": [("azure", 2)],
+    "az-305": [("azure", 2), ("system design", 1)],
+    "dp-900": [("sql", 1)],
+    "dp-203": [("azure", 2), ("sql", 2), ("spark", 1)],
+    "ml engineer": [("machine learning", 2), ("python", 1)],
+    "tensorflow developer": [("tensorflow", 2), ("python", 1)],
+    "databricks certified": [("databricks", 2), ("spark", 1), ("python", 1)],
+    "snowflake": [("snowflake", 2), ("sql", 1)],
+    "dbt certification": [("dbt", 2), ("sql", 1)],
+}
 
 
 def _depth_label(depth: int) -> str:
@@ -910,10 +1959,15 @@ def _depth_label(depth: int) -> str:
     return labels.get(depth, f"Level {depth}")
 
 
-def _apply_adjacency_boosts(assessments):
+def _apply_adjacency_boosts(assessments, parsed_resume: dict = None):
     """
-    Apply the skill adjacency graph to boost implied skills.
-    If a candidate has React at depth 4, their HTML/CSS/JS depths get floored at 3.
+    Apply the skill adjacency graph AND umbrella skill expansion to boost implied skills.
+
+    Two-phase boosting:
+    1. Framework adjacency: React at depth 4 → HTML/CSS/JS floored at 3.
+    2. Umbrella expansion: If resume mentions "web development" or "full-stack",
+       constituent skills (HTML, CSS, JS, etc.) get boosted based on the umbrella context.
+
     This is applied post-LLM to catch cases the LLM missed.
     """
     skill_map = {}
@@ -921,29 +1975,85 @@ def _apply_adjacency_boosts(assessments):
         skill_map[_normalize_skill(a.name)] = a
 
     # Collect all boost targets
-    boosts = {}  # canonical_name → max implied depth
+    boosts = {}  # canonical_name → (max_implied_depth, reason)
+
+    # ── Phase 1: Framework → foundation adjacency ─────────────────────
     for a in assessments:
         if a.estimated_depth >= 3:
             canonical = _normalize_skill(a.name)
             adjacencies = _SKILL_ADJACENCY.get(canonical, [])
             for related_skill, implied_depth in adjacencies:
-                current_boost = boosts.get(related_skill, 0)
-                boosts[related_skill] = max(current_boost, implied_depth)
+                current = boosts.get(related_skill, (0, ""))
+                if implied_depth > current[0]:
+                    boosts[related_skill] = (implied_depth, f"adjacent to {a.name}")
 
-    # Apply boosts
+    # ── Phase 2: Umbrella skill expansion from resume context ─────────
+    # Scan resume text for umbrella terms and boost their constituent skills
+    if parsed_resume:
+        _scan_text = ""
+        for exp in (parsed_resume.get("experience") or []):
+            _scan_text += " " + (exp.get("description") or "")
+            _scan_text += " " + (exp.get("title") or "")
+        for proj in (parsed_resume.get("projects") or []):
+            _scan_text += " " + (proj.get("description") or "")
+        _scan_text += " " + (parsed_resume.get("summary") or "")
+        _scan_text += " " + " ".join(parsed_resume.get("skills_mentioned") or [])
+        _scan_text = _scan_text.lower()
+
+        for umbrella_term, constituents in _UMBRELLA_SKILLS.items():
+            if umbrella_term in _scan_text:
+                for skill_name, implied_depth in constituents:
+                    current = boosts.get(skill_name, (0, ""))
+                    if implied_depth > current[0]:
+                        boosts[skill_name] = (implied_depth, f"implied by '{umbrella_term}' on resume")
+
+    # ── Phase 3: Certification → skill boosts ─────────────────────────
+    if parsed_resume:
+        certs = parsed_resume.get("certifications") or []
+        for cert in certs:
+            cert_lower = (cert if isinstance(cert, str) else str(cert)).lower()
+            for cert_key, skill_boosts in _CERTIFICATION_BOOSTS.items():
+                if cert_key in cert_lower:
+                    for skill_name, depth_boost in skill_boosts:
+                        current = boosts.get(skill_name, (0, ""))
+                        implied = min(depth_boost + 1, 4)  # cert boost + 1 baseline, cap at 4
+                        if implied > current[0]:
+                            boosts[skill_name] = (implied, f"certification: {cert_key}")
+
+    # ── Phase 4: Skill transferability credit ─────────────────────────
+    # If a candidate has React but the job needs Vue, apply partial credit
+    for a in assessments:
+        if a.estimated_depth >= 3:
+            a_canonical = _normalize_skill(a.name)
+            for target_a in assessments:
+                target_canonical = _normalize_skill(target_a.name)
+                if target_canonical != a_canonical and target_a.estimated_depth < 2:
+                    transfer = _get_transferability(a_canonical, target_canonical)
+                    if transfer >= 0.4:
+                        # Transferable skill: give partial depth credit
+                        implied = max(2, int(a.estimated_depth * transfer * 0.8))
+                        implied = min(implied, a.estimated_depth - 1)  # Never exceed source
+                        current = boosts.get(target_canonical, (0, ""))
+                        if implied > current[0]:
+                            boosts[target_canonical] = (
+                                implied,
+                                f"transferable from {a.name} ({transfer:.0%} transferability)"
+                            )
+
+    # ── Apply boosts ──────────────────────────────────────────────────
     for a in assessments:
         canonical = _normalize_skill(a.name)
         if canonical in boosts:
-            implied_depth = boosts[canonical]
+            implied_depth, reason = boosts[canonical]
             if a.estimated_depth < implied_depth:
                 old_depth = a.estimated_depth
                 a.estimated_depth = implied_depth
-                a.depth_confidence = max(a.depth_confidence, 0.7)
+                a.depth_confidence = max(a.depth_confidence, 0.65)
                 a.depth_reasoning = (
-                    f"Implied by adjacent skills (boosted from {old_depth} to {implied_depth}). "
+                    f"Boosted from {old_depth} to {implied_depth} ({reason}). "
                     + a.depth_reasoning
                 )
-                logger.info(f"Adjacency boost: {a.name} {old_depth} -> {implied_depth}")
+                logger.info(f"Adjacency boost: {a.name} {old_depth} -> {implied_depth} ({reason})")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -970,9 +2080,9 @@ def _extract_impact_markers(parsed_resume: dict) -> list:
     Returns list of {type, text, source} dicts.
     """
     markers = []
-    for exp in parsed_resume.get("experience", []):
-        desc = exp.get("description", "")
-        company = exp.get("company", "")
+    for exp in parsed_resume.get("experience") or []:
+        desc = exp.get("description") or ""
+        company = exp.get("company") or ""
         for pattern, marker_type in _IMPACT_PATTERNS:
             for match in pattern.finditer(desc):
                 # Get the sentence containing the match
@@ -1004,8 +2114,14 @@ def _extract_impact_markers(parsed_resume: dict) -> list:
 
 def _compute_recency_factor(assessment, parsed_resume: dict) -> float:
     """
-    Compute a recency factor (0.5 to 1.0) for a skill based on when it was last used.
+    Compute a recency factor for a skill based on when it was last used.
     More recent usage = higher factor. Skills from >5 years ago get penalized.
+
+    Returns:
+    - 1.0 if used within 2 years
+    - 0.90 if used 3-4 years ago
+    - 0.75 if used 5-7 years ago
+    - 0.55 if used 8+ years ago
 
     Uses:
     1. assessment.last_used_year if available (from LLM)
@@ -1037,21 +2153,107 @@ def _compute_recency_factor(assessment, parsed_resume: dict) -> float:
 
 
 def _estimate_years_since_last_use(skill_name: str, parsed_resume: dict, current_year: int) -> int:
-    """Estimate how many years ago a skill was last used by scanning experience entries."""
+    """Estimate how many years ago a skill was last used by scanning experience entries.
+
+    Checks multiple signals per experience entry:
+    1. Technologies list (exact or substring match)
+    2. Description text (substring match)
+    3. Role title (for domain/business skills like 'Account Management')
+    4. Keyword variants (e.g., 'account' matches 'Account Management' skill)
+    """
     skill_lower = skill_name.lower()
     most_recent_year = 0
 
-    for exp in parsed_resume.get("experience", []):
-        # Check if skill is in technologies list or description
-        techs = [t.lower() for t in exp.get("technologies", [])]
-        desc_lower = exp.get("description", "").lower()
+    # Build keyword variants for broader matching
+    # Split multi-word skill names into component keywords
+    skill_words = set(skill_lower.split())
+    # Remove very common words that would cause false positives
+    _STOP_WORDS = {"and", "or", "the", "a", "an", "of", "in", "for", "to", "with", "on", "at", "by"}
+    skill_keywords = skill_words - _STOP_WORDS
 
-        if skill_lower in techs or skill_lower in desc_lower:
-            end_date = exp.get("end_date", "")
+    # Add basic stems for common morphological variants
+    # e.g., "management" also matches "manager", "managing", "managed"
+    # Use a simple stem map for common word roots rather than suffix stripping
+    _STEM_GROUPS = {
+        "manage": {"management", "manager", "managing", "managed", "manages"},
+        "develop": {"development", "developer", "developing", "developed", "develops"},
+        "account": {"account", "accounting", "accounts", "accountant"},
+        "project": {"project", "projects"},
+        "operate": {"operation", "operations", "operational", "operating", "operates"},
+        "design": {"design", "designer", "designing", "designed", "designs"},
+        "strateg": {"strategy", "strategic", "strategies", "strategist"},
+        "lead": {"lead", "leader", "leading", "leads", "leadership"},
+        "business": {"business", "businesses"},
+        "client": {"client", "clients"},
+        "experience": {"experience", "experienced", "experiences"},
+        "deliver": {"delivery", "delivering", "delivered", "delivers", "deliverable"},
+        "govern": {"governance", "governing", "governed", "governs"},
+        "excel": {"excellence", "excellent"},
+        "innovat": {"innovation", "innovative", "innovating", "innovate", "innovates"},
+        "consult": {"consulting", "consultant", "consultancy", "consulted"},
+        "market": {"marketing", "market", "markets", "marketer"},
+        "sales": {"sales", "sale", "selling"},
+        "plan": {"planning", "planned", "plans", "planner"},
+        "engag": {"engagement", "engaging", "engaged", "engages"},
+        "stakeholder": {"stakeholder", "stakeholders"},
+        "partner": {"partner", "partnership", "partners", "partnered"},
+    }
+    # Build a word → group lookup
+    _word_to_group = {}
+    for root, variants in _STEM_GROUPS.items():
+        for v in variants:
+            _word_to_group[v] = variants
+
+    skill_keywords_expanded = set()
+    for kw in skill_keywords:
+        skill_keywords_expanded.add(kw)
+        if kw in _word_to_group:
+            skill_keywords_expanded.update(_word_to_group[kw])
+
+    for exp in parsed_resume.get("experience") or []:
+        # Check technologies list
+        techs = [t.lower() for t in (exp.get("technologies") or [])]
+        desc_lower = (exp.get("description") or "").lower()
+        title_lower = (exp.get("title") or "").lower()
+
+        matched = False
+
+        # Signal 1: Exact or substring match in technologies
+        if skill_lower in techs or any(skill_lower in t or t in skill_lower for t in techs):
+            matched = True
+
+        # Signal 2: Skill name found in description
+        if not matched and skill_lower in desc_lower:
+            matched = True
+
+        # Signal 3: Skill name found in role title (important for business skills)
+        if not matched and skill_lower in title_lower:
+            matched = True
+
+        # Signal 4: Key skill words found in title and/or description (with morphological variants)
+        # (e.g., skill "Account Management" matches title "Account Manager")
+        # Require ALL keywords to match — but they can be spread across title + description
+        if not matched and skill_keywords_expanded:
+            title_words = set(title_lower.split())
+            combined_text = title_lower + " " + desc_lower
+            combined_words = set(combined_text.split())
+
+            # Check if ALL skill keywords (or their stem variants) appear in combined title+description
+            kw_matches = sum(
+                1 for kw in skill_keywords
+                if kw in combined_words
+                or any(variant in combined_words for variant in (_word_to_group.get(kw) or set()))
+                or kw in combined_text  # Also check as substring for compound words
+                or any(variant in combined_text for variant in (_word_to_group.get(kw) or set()))
+            )
+            if kw_matches >= len(skill_keywords):
+                matched = True
+
+        if matched:
+            end_date = exp.get("end_date") or ""
             if isinstance(end_date, str):
                 if "present" in end_date.lower() or "current" in end_date.lower():
                     return 0  # Currently using
-                # Try to parse year from date string
                 year_match = re.search(r'20\d{2}', end_date)
                 if year_match:
                     year = int(year_match.group())
@@ -1070,11 +2272,13 @@ _EDUCATION_LEVELS = {
     "phd": 1.0,
     "ph.d": 1.0,
     "doctorate": 1.0,
+    "professional": 0.90,      # CA, CPA, CFA, ACA, ACCA — postgrad-equivalent professional qualifications
     "master": 0.85,
     "master's": 0.85,
     "msc": 0.85,
     "ms": 0.85,
     "mba": 0.85,
+    "chartered": 0.85,         # "Chartered Accountant" etc. if LLM uses this phrasing
     "bachelor": 0.65,
     "bachelor's": 0.65,
     "bsc": 0.65,
@@ -1099,9 +2303,9 @@ def _compute_education_score(assessments, required_skills: list, parsed_resume: 
     - Certifications bonus (0.0-0.15): relevant certs add value
     - Skill breadth proxy (0.0-0.20): % of required skills found
     """
-    education = parsed_resume.get("education", [])
+    education = parsed_resume.get("education") or []
     education_level = parsed_resume.get("education_level", "")
-    certifications = parsed_resume.get("certifications", [])
+    certifications = parsed_resume.get("certifications") or []
 
     # Component 1: Degree level (0-0.40)
     degree_score = 0.0
@@ -1113,7 +2317,9 @@ def _compute_education_score(assessments, required_skills: list, parsed_resume: 
                 break
     # Also check individual education entries
     for edu in education:
-        degree = edu.get("degree", "").lower()
+        if not isinstance(edu, dict):
+            continue
+        degree = (edu.get("degree") or "").lower()
         for key, score in _EDUCATION_LEVELS.items():
             if key in degree:
                 degree_score = max(degree_score, score)
@@ -1121,20 +2327,47 @@ def _compute_education_score(assessments, required_skills: list, parsed_resume: 
     degree_component = degree_score * 0.40
 
     # Component 2: Field relevance (0-0.25)
-    relevant_fields = {"computer science", "software engineering", "computer engineering",
-                       "information technology", "data science", "mathematics",
-                       "electrical engineering", "information systems",
-                       "artificial intelligence", "machine learning",
-                       "distributed systems", "cybersecurity"}
+    # Covers both tech and non-tech professional fields
+    relevant_fields = {
+        # Tech fields
+        "computer science", "software engineering", "computer engineering",
+        "information technology", "data science", "mathematics",
+        "electrical engineering", "information systems",
+        "artificial intelligence", "machine learning",
+        "distributed systems", "cybersecurity",
+        # Business / Finance / Professional fields
+        "finance", "accounting", "commerce", "business administration",
+        "economics", "management", "chartered accountant", "law",
+        "human resources", "marketing", "operations management",
+        "public administration", "international business",
+        "supply chain", "actuarial", "statistics", "banking",
+    }
     field_score = 0.0
     for edu in education:
-        field = edu.get("field", "").lower()
+        if not isinstance(edu, dict):
+            continue
+        field = (edu.get("field") or "").lower()
+        degree = (edu.get("degree") or "").lower()
+        combined = f"{degree} {field}"
         for rf in relevant_fields:
-            if rf in field:
+            if rf in combined:
                 field_score = 1.0
                 break
         if field_score > 0:
             break
+    # Also check certifications for professional field relevance
+    if field_score == 0.0 and certifications:
+        _professional_cert_names = {"ca", "aca", "fca", "cpa", "acca", "cfa", "acs",
+                                     "icwa", "cma", "cisa", "cissp", "pmp", "aws",
+                                     "azure", "gcp", "scrum", "six sigma"}
+        for cert in certifications:
+            cert_name = (cert.get("name", "") if isinstance(cert, dict) else str(cert)).lower()
+            for pc in _professional_cert_names:
+                if pc in cert_name:
+                    field_score = 0.85  # Slightly less than formal degree but still strong
+                    break
+            if field_score > 0:
+                break
     field_component = field_score * 0.25
 
     # Component 3: Certifications bonus (0-0.15)
@@ -1252,12 +2485,13 @@ def _generate_risk_flags(assessments, parsed_resume: dict, scores: dict,
                 "suggestion": _sanitize_text(f"Ask specific architecture or implementation questions about {a.name} to verify depth."),
             })
 
-    # A4. Employment gaps
-    experiences = parsed_resume.get("experience", [])
-    if len(experiences) >= 2:
-        for i in range(len(experiences) - 1):
-            end_date = experiences[i].get("end_date", "")
-            start_date = experiences[i + 1].get("start_date", "")
+    # A4. Employment gaps (sorted chronologically, month-level precision)
+    experiences = parsed_resume.get("experience") or []
+    sorted_exps = _sort_experiences_by_start(experiences) if len(experiences) >= 2 else experiences
+    if len(sorted_exps) >= 2:
+        for i in range(len(sorted_exps) - 1):
+            end_date = sorted_exps[i].get("end_date") or ""
+            start_date = sorted_exps[i + 1].get("start_date") or ""
             gap = _estimate_gap_months(end_date, start_date)
             if gap is not None and gap > 6:
                 flags.append({
@@ -1266,30 +2500,138 @@ def _generate_risk_flags(assessments, parsed_resume: dict, scores: dict,
                     "title": _sanitize_text(f"Employment gap of approximately {gap} months"),
                     "description": _sanitize_text(
                         f"There appears to be a gap of about {gap} months "
-                        f"between {experiences[i].get('company', 'previous role')} and "
-                        f"{experiences[i + 1].get('company', 'next role')}."
+                        f"between {sorted_exps[i].get('company', 'previous role')} and "
+                        f"{sorted_exps[i + 1].get('company', 'next role')}."
                     ),
                     "evidence": _sanitize_text(f"End date: {end_date}, Next start: {start_date}"),
                     "suggestion": "Ask about what the candidate was doing during this period.",
                 })
 
-    # A5. Recency concerns: key skills not used recently
-    current_year = datetime.now().year
-    for a in assessments:
-        if a.estimated_depth >= 3 and a.last_used_year and (current_year - a.last_used_year) > 5:
-            years_ago = current_year - a.last_used_year
+    # A5. (Removed) Recency concerns were previously flagged here, but "last used X years ago"
+    # flags are not surfaced. Recency is already handled by the recency weighting factor in
+    # _compute_scores, which reduces effective depth for stale skills. Surfacing it as a
+    # separate risk flag was redundant and potentially misleading for recruiters.
+
+    # A6. Job hopping: many short tenures (< 1 year each)
+    if len(sorted_exps) >= 3:
+        short_tenures = 0
+        for exp in sorted_exps:
+            # Skip the current (ongoing) role: its duration is still growing
+            end_date_str = exp.get("end_date") or ""
+            if _is_present_date(end_date_str):
+                continue
+
+            start_m, end_m = _parse_experience_dates(exp)
+            if start_m is None or end_m is None:
+                continue
+            tenure_months = end_m - start_m
+            if 0 <= tenure_months < 12:
+                short_tenures += 1
+
+        if short_tenures >= 3:
             flags.append({
-                "flag_type": "stale_skill",
-                "severity": "low" if years_ago <= 7 else "medium",
-                "title": _sanitize_text(f"{a.name} last used {years_ago} years ago"),
+                "flag_type": "job_hopping",
+                "severity": "medium" if short_tenures < 4 else "high",
+                "title": f"{short_tenures} roles with less than 1 year tenure",
                 "description": _sanitize_text(
-                    f"The candidate has strong {a.name} skills (depth {a.estimated_depth}), "
-                    f"but it was last used around {a.last_used_year}. "
-                    f"The technology landscape may have changed significantly since then."
+                    f"The candidate has {short_tenures} positions lasting less than 1 year. "
+                    f"While short tenures can reflect contract work or startups, "
+                    f"a pattern of very brief employment may indicate retention concerns."
                 ),
-                "evidence": _sanitize_text(a.depth_reasoning or ""),
-                "suggestion": _sanitize_text(f"Ask about recent experience with modern {a.name} practices and changes."),
+                "evidence": f"{short_tenures} of {len(sorted_exps)} roles lasted less than 1 year",
+                "suggestion": "Ask about the reasons for short tenures. Were these contracts, layoffs, or voluntary moves?",
             })
+
+    # A7. Overlapping employment dates (all-pairs, month-level precision)
+    if len(sorted_exps) >= 2:
+        # Build parsed date ranges for all experiences
+        date_ranges = []
+        for exp in sorted_exps:
+            start_m, end_m = _parse_experience_dates(exp)
+            if start_m is not None and end_m is not None:
+                date_ranges.append((start_m, end_m, exp))
+
+        # Check all pairs for overlaps (not just consecutive)
+        flagged_pairs = set()
+        for i in range(len(date_ranges)):
+            for j in range(i + 1, len(date_ranges)):
+                start_a, end_a, exp_a = date_ranges[i]
+                start_b, end_b, exp_b = date_ranges[j]
+
+                # Two ranges overlap if one starts before the other ends
+                overlap_months = min(end_a, end_b) - max(start_a, start_b)
+
+                if overlap_months >= 2:  # At least 2 months overlap (filter out minor rounding)
+                    company_a = exp_a.get("company") or "unknown company"
+                    company_b = exp_b.get("company") or "unknown company"
+                    pair_key = tuple(sorted([company_a.lower(), company_b.lower()]))
+
+                    if pair_key in flagged_pairs:
+                        continue  # Don't flag same pair twice
+                    flagged_pairs.add(pair_key)
+
+                    # Determine severity based on overlap length
+                    if overlap_months >= 12:
+                        severity = "medium"
+                        overlap_desc = f"{overlap_months // 12} year{'s' if overlap_months >= 24 else ''}"
+                    else:
+                        severity = "low"
+                        overlap_desc = f"{overlap_months} month{'s' if overlap_months != 1 else ''}"
+
+                    start_a_str = exp_a.get("start_date") or "?"
+                    end_a_str = exp_a.get("end_date") or "?"
+                    start_b_str = exp_b.get("start_date") or "?"
+                    end_b_str = exp_b.get("end_date") or "?"
+
+                    flags.append({
+                        "flag_type": "overlapping_dates",
+                        "severity": severity,
+                        "title": _sanitize_text(f"~{overlap_desc} overlap between {company_a} and {company_b}"),
+                        "description": _sanitize_text(
+                            f"The role at {company_a} ({start_a_str} - {end_a_str}) "
+                            f"overlaps by approximately {overlap_desc} with the role at "
+                            f"{company_b} ({start_b_str} - {end_b_str}). "
+                            f"This could indicate concurrent positions, consulting, "
+                            f"a transition period, or approximate dates."
+                        ),
+                        "evidence": _sanitize_text(
+                            f"{company_a}: {start_a_str} - {end_a_str}, "
+                            f"{company_b}: {start_b_str} - {end_b_str}"
+                        ),
+                        "suggestion": "Clarify whether these roles were concurrent (e.g., part-time, consulting) or if the dates are approximate.",
+                    })
+
+    # A8. Career trajectory — downward moves without explanation (using sorted experiences)
+    if len(sorted_exps) >= 2:
+        senior_titles = {"senior", "lead", "principal", "staff", "director", "vp", "head", "chief", "manager", "architect"}
+        junior_titles = {"junior", "associate", "intern", "trainee", "entry"}
+
+        prev_seniority = None
+        for i, exp in enumerate(sorted_exps):
+            title_lower = (exp.get("title", "") or "").lower()
+            if any(s in title_lower for s in senior_titles):
+                curr_seniority = "senior"
+            elif any(s in title_lower for s in junior_titles):
+                curr_seniority = "junior"
+            else:
+                curr_seniority = "mid"
+
+            if prev_seniority == "senior" and curr_seniority in ("junior", "mid") and i > 0:
+                flags.append({
+                    "flag_type": "career_trajectory",
+                    "severity": "low",
+                    "title": "Potential downward career move detected",
+                    "description": _sanitize_text(
+                        f"The candidate moved from '{sorted_exps[i-1].get('title', 'senior role')}' "
+                        f"at {sorted_exps[i-1].get('company', 'previous company')} to "
+                        f"'{exp.get('title', 'less senior role')}' at {exp.get('company', 'current company')}. "
+                        f"This could indicate a career pivot, company change, or other circumstances worth exploring."
+                    ),
+                    "evidence": f"From: {sorted_exps[i-1].get('title', '?')}, To: {exp.get('title', '?')}",
+                    "suggestion": "Ask about the motivation for this transition. Was it a pivot, a startup move, or a different kind of growth?",
+                })
+                break  # Only flag once
+            prev_seniority = curr_seniority
 
     # ═══════════════════════════════════════════════════════════════════
     # B. Weak-profile warnings — alert the recruiter that this candidate
@@ -1416,10 +2758,10 @@ def _generate_risk_flags(assessments, parsed_resume: dict, scores: dict,
     #     education score is very low
     education_score = scores.get("education", 0)
     if education_score < 0.2 and overall < 0.50:
-        education_data = parsed_resume.get("education", [])
+        education_data = parsed_resume.get("education") or []
         has_any_degree = any(
             edu.get("degree") or edu.get("institution")
-            for edu in education_data
+            for edu in education_data if isinstance(edu, dict)
         ) if education_data else False
         if not has_any_degree:
             flags.append({
@@ -1439,47 +2781,247 @@ def _generate_risk_flags(assessments, parsed_resume: dict, scores: dict,
     return flags
 
 
+# ── Shared date parsing utilities ────────────────────────────────────
+
+_MONTH_NAMES = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+
+
+def _extract_month(date_str: str) -> int:
+    """Extract month number from a date string. Returns 6 (mid-year) if unknown."""
+    if not date_str:
+        return 6
+    # Try "MM/YYYY" or "MM-YYYY" format
+    m = re.search(r'(\d{1,2})\s*[/\-]\s*\d{4}', date_str)
+    if m:
+        month = int(m.group(1))
+        if 1 <= month <= 12:
+            return month
+    # Try month name ("Jan", "January", etc.)
+    lower = date_str.lower()
+    for name, num in _MONTH_NAMES.items():
+        if name in lower:
+            return num
+    return 6  # default to mid-year
+
+
+def _extract_year(date_str: str) -> int | None:
+    """Extract a 4-digit year from a date string. Returns None if not found."""
+    if not date_str:
+        return None
+    match = re.search(r'(20\d{2}|19\d{2})', str(date_str))
+    return int(match.group(1)) if match else None
+
+
+def _is_present_date(date_str: str) -> bool:
+    """Check if a date string indicates 'present' / 'current'."""
+    if not date_str:
+        return False
+    lower = str(date_str).lower()
+    return "present" in lower or "current" in lower
+
+
+def _date_to_months(date_str: str, fallback_year: int | None = None) -> int | None:
+    """
+    Convert a date string to an absolute month count (year*12 + month).
+    This allows easy arithmetic between dates.
+    If 'present'/'current', uses current year/month.
+    Returns None if the date can't be parsed.
+    """
+    if not date_str:
+        if fallback_year:
+            return fallback_year * 12 + 6
+        return None
+    if _is_present_date(date_str):
+        now = datetime.now()
+        return now.year * 12 + now.month
+    year = _extract_year(date_str)
+    if year is None:
+        if fallback_year:
+            return fallback_year * 12 + 6
+        return None
+    month = _extract_month(date_str)
+    return year * 12 + month
+
+
+def _parse_experience_dates(exp: dict) -> tuple[int | None, int | None]:
+    """
+    Parse start and end dates from an experience entry into absolute months.
+    Returns (start_months, end_months). Either can be None if unparseable.
+    """
+    start_str = exp.get("start_date") or ""
+    end_str = exp.get("end_date") or ""
+    start = _date_to_months(start_str)
+    end = _date_to_months(end_str)
+    return start, end
+
+
+def _sort_experiences_by_start(experiences: list[dict]) -> list[dict]:
+    """
+    Sort experience entries chronologically by start date (earliest first).
+    Entries without parseable start dates go to the end.
+    """
+    def sort_key(exp):
+        start_str = exp.get("start_date") or ""
+        start = _date_to_months(start_str)
+        return start if start is not None else 999999
+    return sorted(experiences, key=sort_key)
+
+
 def _estimate_gap_months(end_date_str: str, start_date_str: str) -> int | None:
     """Estimate gap in months between two date strings."""
     if not end_date_str or not start_date_str:
         return None
-    if "present" in end_date_str.lower() or "current" in end_date_str.lower():
+    if _is_present_date(end_date_str):
         return None
 
-    end_year_match = re.search(r'(20\d{2})', end_date_str)
-    start_year_match = re.search(r'(20\d{2})', start_date_str)
-    if not end_year_match or not start_year_match:
+    end = _date_to_months(end_date_str)
+    start = _date_to_months(start_date_str)
+    if end is None or start is None:
         return None
 
-    end_year = int(end_year_match.group(1))
-    start_year = int(start_year_match.group(1))
-
-    # Try to extract month from common date formats like "01/2020", "3-2019", "Jan 2020"
-    _MONTH_NAMES = {
-        "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-        "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
-    }
-
-    def _extract_month(date_str: str) -> int:
-        """Extract month number from a date string. Returns 6 (mid-year) if unknown."""
-        # Try "MM/YYYY" or "MM-YYYY" format
-        m = re.search(r'(\d{1,2})\s*[/\-]\s*\d{4}', date_str)
-        if m:
-            month = int(m.group(1))
-            if 1 <= month <= 12:
-                return month
-        # Try month name ("Jan", "January", etc.)
-        lower = date_str.lower()
-        for name, num in _MONTH_NAMES.items():
-            if name in lower:
-                return num
-        return 6  # default to mid-year
-
-    end_month = _extract_month(end_date_str)
-    start_month = _extract_month(start_date_str)
-
-    gap = (start_year - end_year) * 12 + (start_month - end_month)
+    gap = start - end
     return max(0, gap)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Bias detection and adverse impact analysis
+# ═══════════════════════════════════════════════════════════════════════
+
+def compute_adverse_impact_metrics(analysis_results: list[dict]) -> dict:
+    """
+    Compute adverse impact metrics for a batch of analysis results.
+    Implements the four-fifths (80%) rule from EEOC Uniform Guidelines.
+
+    This function checks whether the scoring system produces systematically
+    different outcomes across detectable demographic dimensions.
+
+    Args:
+        analysis_results: List of dicts with keys:
+            - overall_score, recommendation, candidate_name, education_level,
+              years_experience, location (optional)
+
+    Returns:
+        dict with fairness metrics, warnings, and recommendations
+    """
+    if len(analysis_results) < 4:
+        return {
+            "status": "insufficient_data",
+            "message": "Need at least 4 candidates for meaningful bias analysis.",
+            "metrics": {},
+        }
+
+    scores = [r.get("overall_score", 0) for r in analysis_results]
+    recs = [r.get("recommendation", "maybe") for r in analysis_results]
+
+    # ── Score distribution analysis ─────────────────────────────────
+    mean_score = sum(scores) / len(scores)
+    variance = sum((s - mean_score) ** 2 for s in scores) / len(scores)
+    std_dev = variance ** 0.5
+
+    # ── Recommendation distribution ─────────────────────────────────
+    rec_counts = {}
+    for r in recs:
+        rec_counts[r] = rec_counts.get(r, 0) + 1
+
+    positive_rate = sum(1 for r in recs if r in ("yes", "strong_yes")) / len(recs)
+    negative_rate = sum(1 for r in recs if r in ("no", "strong_no")) / len(recs)
+
+    # ── Experience-based fairness check ─────────────────────────────
+    # Check if candidates with similar experience get wildly different scores
+    # (proxy for age-related bias)
+    exp_groups = {"junior": [], "mid": [], "senior": []}
+    for r in analysis_results:
+        years = r.get("years_experience") or 0
+        if years < 5:
+            exp_groups["junior"].append(r.get("overall_score", 0))
+        elif years < 12:
+            exp_groups["mid"].append(r.get("overall_score", 0))
+        else:
+            exp_groups["senior"].append(r.get("overall_score", 0))
+
+    exp_warnings = []
+    exp_means = {}
+    for group, group_scores in exp_groups.items():
+        if group_scores:
+            exp_means[group] = sum(group_scores) / len(group_scores)
+
+    # Four-fifths rule check between experience groups
+    # NOTE: This applies the four-fifths rule to score distributions as a proxy for fairness,
+    # not to selection rates (which is the EEOC standard). Use this as a warning signal
+    # for potential bias in the scoring system across demographic groups.
+    if len(exp_means) >= 2:
+        max_mean = max(exp_means.values())
+        for group, group_mean in exp_means.items():
+            if max_mean > 0 and group_mean / max_mean < 0.80:
+                exp_warnings.append(
+                    f"{group.capitalize()} experience group ({group_mean:.0%} avg) scores below "
+                    f"80% of the highest group ({max_mean:.0%} avg). "
+                    f"This may indicate experience-level bias in scoring."
+                )
+
+    # ── Education-based fairness check ──────────────────────────────
+    edu_groups = {}
+    for r in analysis_results:
+        edu = (r.get("education_level") or "unknown").lower()
+        if edu not in edu_groups:
+            edu_groups[edu] = []
+        edu_groups[edu].append(r.get("overall_score", 0))
+
+    edu_warnings = []
+    if len(edu_groups) >= 2:
+        edu_means = {g: sum(s) / len(s) for g, s in edu_groups.items() if s}
+        max_edu_mean = max(edu_means.values()) if edu_means else 0
+        for group, group_mean in edu_means.items():
+            if max_edu_mean > 0 and group_mean / max_edu_mean < 0.80 and len(edu_groups.get(group, [])) >= 2:
+                edu_warnings.append(
+                    f"Candidates with '{group}' education ({group_mean:.0%} avg) score below "
+                    f"80% of the highest education group ({max_edu_mean:.0%} avg). "
+                    f"Consider whether education weight is appropriate for this role."
+                )
+
+    # ── Score clustering check ──────────────────────────────────────
+    # Detect if scores are artificially clustered (all same) or have suspicious patterns
+    clustering_warning = None
+    if std_dev < 0.03 and len(scores) >= 5:
+        clustering_warning = (
+            "Score variance is extremely low — all candidates received nearly identical scores. "
+            "This may indicate the scoring criteria are too generic for this role."
+        )
+    elif std_dev > 0.35:
+        clustering_warning = (
+            "Score variance is very high — candidates are being scored with extreme spread. "
+            "Consider whether the required skill list is too narrow or too specialized."
+        )
+
+    # ── Compile results ─────────────────────────────────────────────
+    all_warnings = exp_warnings + edu_warnings
+    if clustering_warning:
+        all_warnings.append(clustering_warning)
+
+    return {
+        "status": "pass" if not all_warnings else "review_recommended",
+        "candidate_count": len(analysis_results),
+        "metrics": {
+            "mean_score": round(mean_score, 3),
+            "std_deviation": round(std_dev, 3),
+            "positive_rate": round(positive_rate, 3),
+            "negative_rate": round(negative_rate, 3),
+            "recommendation_distribution": rec_counts,
+        },
+        "experience_group_means": {k: round(v, 3) for k, v in exp_means.items()},
+        "warnings": all_warnings,
+        "guidance": (
+            "All checks passed. No adverse impact patterns detected."
+            if not all_warnings else
+            "Review the warnings above. Consider adjusting scoring weights or "
+            "skill requirements if patterns suggest systematic disadvantage to any group. "
+            "Per EEOC Uniform Guidelines, selection rates below 80% of the highest group "
+            "may indicate adverse impact requiring further investigation."
+        ),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1518,7 +3060,7 @@ def _generate_interview_questions(
         return {"projects": projects[:3], "snippets": source_snippets[:3]}
 
     # ── Helper: get candidate's experience entries for context ────────
-    experience_entries = resume_parsed.get("experience", [])
+    experience_entries = resume_parsed.get("experience") or []
     recent_companies = []
     for exp in experience_entries[:3]:
         if isinstance(exp, dict):
@@ -1583,15 +3125,33 @@ def _generate_interview_questions(
         if not info or not info.get("matched_skill"):
             # Completely missing skill
             # Check if there's an adjacent/related skill the candidate has
-            # (same category as any of the candidate's existing strong skills)
+            # Strategy 1: Same category match (language, framework, etc.)
+            # Strategy 2: Adjacency graph neighbors
             related = []
-            # Get the category of the missing skill from the required_skills list
             missing_category = req.get("category", "")
+            missing_canonical = _normalize_skill(skill_name)
+
+            # Strategy 1: Category-based matching
             for a in assessments:
-                if a.estimated_depth >= 2 and _normalize_skill(a.name) != _normalize_skill(skill_name):
-                    # If the candidate's skill shares a category with the missing skill
+                if a.estimated_depth >= 2 and _normalize_skill(a.name) != missing_canonical:
                     if a.category and missing_category and a.category.lower() == missing_category.lower():
                         related.append(a.name)
+
+            # Strategy 2: If no category matches, check adjacency graph neighbors
+            if not related:
+                # Find skills that share adjacency targets with the missing skill
+                missing_adjacencies = set(
+                    t[0] for t in _SKILL_ADJACENCY.get(missing_canonical, [])
+                )
+                for a in assessments:
+                    if a.estimated_depth >= 2 and _normalize_skill(a.name) != missing_canonical:
+                        a_canonical = _normalize_skill(a.name)
+                        a_adjacencies = set(
+                            t[0] for t in _SKILL_ADJACENCY.get(a_canonical, [])
+                        )
+                        # If they share foundation skills, they're related
+                        if missing_adjacencies & a_adjacencies:
+                            related.append(a.name)
 
             if related:
                 question = (
@@ -1721,36 +3281,10 @@ def _generate_interview_questions(
             })
             priority_counter += 1
 
+        # stale_skill flags are no longer generated (removed in A5)
+        # but guard in case old data is encountered
         elif flag_type == "stale_skill":
-            # Title format: "{skill_name} last used {N} years ago"
-            raw_title = rf.get("title", "")
-            skill = re.sub(r'\s+last used.*$', '', raw_title).strip() if "last used" in raw_title else raw_title.strip()
-            assessment_obj = next(
-                (a for a in assessments if _normalize_skill(a.name) == _normalize_skill(skill)),
-                None
-            )
-            last_year = assessment_obj.last_used_year if assessment_obj else None
-            if last_year:
-                question = (
-                    f"Your most recent {skill} experience appears to be from around {last_year}. "
-                    f"The technology has evolved significantly since then — "
-                    f"are you up to date with the latest changes? "
-                    f"Have you done any recent side projects or coursework with modern {skill}?"
-                )
-            else:
-                question = (
-                    f"{skill} appears on your resume but the experience may not be recent. "
-                    f"How current is your knowledge? Are you familiar with the latest version "
-                    f"and ecosystem changes?"
-                )
-            questions.append({
-                "category": "red_flag",
-                "question": _sanitize_text(question),
-                "rationale": _sanitize_text(rf_desc),
-                "target_skill": skill,
-                "priority": priority_counter,
-            })
-            priority_counter += 1
+            pass  # Skip — recency is handled by score weighting, not surfaced as a flag
 
         elif flag_type == "seniority_mismatch":
             question = (
@@ -1897,8 +3431,8 @@ def _compute_scores(assessments, required_skills: list, preferred_skills: list, 
     impact_markers = _extract_impact_markers(parsed_resume)
 
     breakdown = {}
-    matched = 0
-    total_required = len(required_skills) or 1
+    weighted_match_sum = 0.0
+    total_weight = 0.0
     depth_scores = []
     strengths = []
     gaps = []
@@ -1907,8 +3441,10 @@ def _compute_scores(assessments, required_skills: list, preferred_skills: list, 
         skill_name = req.get("skill", "")
         min_depth = req.get("min_depth", 2)
         weight = req.get("weight", 1.0)
+        category = req.get("category", "unknown")
 
         assessment = skill_map.get(_normalize_skill(skill_name))
+        total_weight += weight
 
         if assessment and assessment.estimated_depth > 0:
             # Apply recency weighting
@@ -1920,10 +3456,10 @@ def _compute_scores(assessments, required_skills: list, preferred_skills: list, 
             depth_label = _depth_label(assessment.estimated_depth)
             required_label = _depth_label(min_depth)
             confidence_pct = f"{assessment.depth_confidence:.0%}"
-            reasoning_short = assessment.depth_reasoning[:120] if assessment.depth_reasoning else ""
+            reasoning_short = assessment.depth_reasoning[:200] if assessment.depth_reasoning else ""
 
             if meets_depth:
-                matched += 1
+                weighted_match_sum += weight  # Full credit (weighted)
                 if assessment.estimated_depth >= min_depth + 1:
                     strengths.append(
                         f"Exceeds requirement in {skill_name}: "
@@ -1937,6 +3473,11 @@ def _compute_scores(assessments, required_skills: list, preferred_skills: list, 
                         f"{confidence_pct} confidence. {reasoning_short}"
                     )
             else:
+                # Partial credit: candidate has the skill but below required depth
+                # depth 2 of required 3 gets 0.67 * weight credit (not zero)
+                partial_ratio = assessment.estimated_depth / max(min_depth, 1)
+                partial_credit = partial_ratio * weight * 0.6  # 60% of proportional credit
+                weighted_match_sum += partial_credit
                 shortfall = min_depth - assessment.estimated_depth
                 gaps.append(
                     f"Below requirement in {skill_name}: "
@@ -1953,11 +3494,12 @@ def _compute_scores(assessments, required_skills: list, preferred_skills: list, 
                 "match": meets_depth,
                 "confidence": assessment.depth_confidence,
                 "weight": weight,
+                "category": category,
                 "recency_factor": round(recency, 2),
                 "reasoning": _sanitize_text(reasoning_short),
             }
         else:
-            # Skill completely missing from resume
+            # Skill completely missing from resume — zero credit
             required_label = _depth_label(min_depth)
             gaps.append(
                 f"Missing required skill: {skill_name}. "
@@ -1973,6 +3515,7 @@ def _compute_scores(assessments, required_skills: list, preferred_skills: list, 
                 "match": False,
                 "confidence": 0.0,
                 "weight": weight,
+                "category": category,
                 "recency_factor": 0.0,
                 "reasoning": f"No evidence of {skill_name} found on resume.",
             }
@@ -1987,12 +3530,11 @@ def _compute_scores(assessments, required_skills: list, preferred_skills: list, 
             preferred_matched += 1
             depth_label = _depth_label(assessment.estimated_depth)
             confidence_pct = f"{assessment.depth_confidence:.0%}"
-            reasoning_short = assessment.depth_reasoning[:120] if assessment.depth_reasoning else ""
+            reasoning_short = assessment.depth_reasoning[:200] if assessment.depth_reasoning else ""
             strengths.append(
                 f"Has preferred skill: {skill_name}, "
                 f"rated {depth_label} (depth {assessment.estimated_depth}). "
-                f"{confidence_pct} confidence. "
-                f"This is a nice to have that strengthens the candidacy. {reasoning_short}"
+                f"{confidence_pct} confidence. {reasoning_short}"
             )
             breakdown[skill_name] = {
                 "required_depth": 0,
@@ -2047,7 +3589,8 @@ def _compute_scores(assessments, required_skills: list, preferred_skills: list, 
 
     # ── Compute aggregate scores ──────────────────────────────────────
 
-    skill_match = matched / total_required if required_skills else 0.5
+    # Weighted skill match: accounts for skill importance and partial credit
+    skill_match = weighted_match_sum / total_weight if total_weight > 0 else 0.5
     depth_avg = sum(depth_scores) / len(depth_scores) if depth_scores else 0.5
 
     # Experience score: confidence-weighted depth with recency
@@ -2084,7 +3627,7 @@ def _compute_scores(assessments, required_skills: list, preferred_skills: list, 
         (preferred_bonus) +
         (impact_bonus) +
         (leadership_bonus) +
-        (0.03 if matched == total_required else 0.0) -
+        (0.03 if skill_match >= 0.95 else 0.0) -
         experience_penalty
     )
     overall = min(overall, 1.0)
@@ -2101,6 +3644,51 @@ def _compute_scores(assessments, required_skills: list, preferred_skills: list, 
     else:
         recommendation = "strong_no"
 
+    # ── Confidence score: how reliable is this analysis? ─────────────
+    # High confidence = lots of evidence, high LLM confidence, many skills matched
+    # Low confidence = thin resume, few evidence items, uncertain skill assessments
+    avg_confidence = sum(a.depth_confidence for a in assessments) / max(len(assessments), 1)
+    evidence_count = sum(len(a.evidence) for a in assessments)
+    skills_with_evidence = sum(1 for a in assessments if len(a.evidence) >= 1)
+
+    confidence_factors = [
+        min(avg_confidence, 1.0),                                      # LLM assessment confidence
+        min(evidence_count / max(len(assessments) * 2, 1), 1.0),       # Evidence density
+        skills_with_evidence / max(len(assessments), 1),               # Coverage completeness
+        min(len(parsed_resume.get("experience") or []) / 3, 1.0),     # Resume richness
+    ]
+    analysis_confidence = round(sum(confidence_factors) / len(confidence_factors), 3)
+
+    # Confidence-based recommendation adjustment
+    # If confidence is very low, downgrade strong recommendations
+    if analysis_confidence < 0.35 and recommendation in ("strong_yes", "strong_no"):
+        recommendation = "yes" if recommendation == "strong_yes" else "no"
+        confidence_note = "Recommendation tempered due to low analysis confidence."
+    elif analysis_confidence < 0.25:
+        recommendation = "maybe"
+        confidence_note = "Low-confidence analysis — recommend manual review."
+    else:
+        confidence_note = None
+
+    # ── Score explainability: what drove the score ────────────────────
+    score_drivers = []
+    if skill_match >= 0.80:
+        score_drivers.append(f"Strong skill coverage ({round(skill_match*100)}% match)")
+    elif skill_match < 0.50:
+        score_drivers.append(f"Low skill coverage ({round(skill_match*100)}% match)")
+    if depth_avg >= 0.70:
+        score_drivers.append(f"Deep expertise across matched skills")
+    elif depth_avg < 0.40:
+        score_drivers.append(f"Surface-level depth on most skills")
+    if experience_penalty > 0.05:
+        score_drivers.append(f"Experience shortfall penalty (-{round(experience_penalty*100)}%)")
+    if preferred_bonus > 0.03:
+        score_drivers.append(f"Preferred skills bonus (+{round(preferred_bonus*100)}%)")
+    if impact_bonus > 0.01:
+        score_drivers.append(f"Quantified impact markers bonus (+{round(impact_bonus*100)}%)")
+    if leadership_bonus > 0.01:
+        score_drivers.append(f"Leadership signals bonus (+{round(leadership_bonus*100)}%)")
+
     return {
         "overall": round(overall, 3),
         "skill_match": round(skill_match, 3),
@@ -2114,43 +3702,71 @@ def _compute_scores(assessments, required_skills: list, preferred_skills: list, 
         "strengths": [_sanitize_text(s) for s in strengths],
         "gaps": [_sanitize_text(g) for g in gaps],
         "recommendation": recommendation,
+        # New: Explainability and confidence fields
+        "analysis_confidence": analysis_confidence,
+        "confidence_note": confidence_note,
+        "score_drivers": score_drivers,
+        "score_weights": {
+            "skill_match": 0.33,
+            "depth": 0.23,
+            "experience": 0.20,
+            "education": 0.10,
+            "preferred_bonus": round(preferred_bonus, 3),
+            "impact_bonus": round(impact_bonus, 3),
+            "leadership_bonus": round(leadership_bonus, 3),
+            "experience_penalty": round(-experience_penalty, 3),
+        },
     }
 
 
 def _estimate_candidate_years(parsed_resume: dict) -> int | None:
     """
     Estimate total years of professional experience from parsed resume data.
+    Uses interval merging to correctly handle overlapping employment periods.
+
+    Example: Two concurrent roles 2015-2020 count as 5 years, not 10.
     Returns None if we can't determine experience.
     """
-    experiences = parsed_resume.get("experience", [])
+    experiences = parsed_resume.get("experience") or []
     if not experiences:
         return None
 
-    current_year = datetime.now().year
-    earliest_start = None
-    latest_end = current_year
-
+    # Build list of (start_month, end_month) intervals
+    intervals = []
     for exp in experiences:
-        start = exp.get("start_date", "")
-        end = exp.get("end_date", "")
+        start_m, end_m = _parse_experience_dates(exp)
+        if start_m is not None and end_m is not None and end_m >= start_m:
+            intervals.append((start_m, end_m))
 
-        start_match = re.search(r'(20\d{2}|19\d{2})', str(start))
-        if start_match:
-            year = int(start_match.group(1))
-            if earliest_start is None or year < earliest_start:
-                earliest_start = year
+    if not intervals:
+        # Fallback: use the old span method if dates can't be parsed to months
+        current_year = datetime.now().year
+        earliest_start = None
+        for exp in experiences:
+            start = exp.get("start_date") or ""
+            start_match = re.search(r'(20\d{2}|19\d{2})', str(start))
+            if start_match:
+                year = int(start_match.group(1))
+                if earliest_start is None or year < earliest_start:
+                    earliest_start = year
+        if earliest_start is None:
+            return None
+        return max(current_year - earliest_start, 0)
 
-        if end and "present" not in str(end).lower() and "current" not in str(end).lower():
-            end_match = re.search(r'(20\d{2}|19\d{2})', str(end))
-            if end_match:
-                year = int(end_match.group(1))
-                if year > latest_end:
-                    latest_end = year
+    # Merge overlapping intervals to avoid double-counting
+    intervals.sort(key=lambda x: x[0])
+    merged = [intervals[0]]
+    for start, end in intervals[1:]:
+        prev_start, prev_end = merged[-1]
+        if start <= prev_end:
+            # Overlapping or adjacent — extend the current interval
+            merged[-1] = (prev_start, max(prev_end, end))
+        else:
+            merged.append((start, end))
 
-    if earliest_start is None:
-        return None
-
-    return max(latest_end - earliest_start, 0)
+    # Sum total months across all merged intervals
+    total_months = sum(end - start for start, end in merged)
+    return max(round(total_months / 12), 0)
 
 
 def _detect_leadership_signals(parsed_resume: dict) -> list:
@@ -2159,7 +3775,7 @@ def _detect_leadership_signals(parsed_resume: dict) -> list:
     Returns a list of strength messages for detected signals.
     """
     signals = []
-    experiences = parsed_resume.get("experience", [])
+    experiences = parsed_resume.get("experience") or []
 
     leadership_keywords = {
         "led", "lead", "leading", "managed", "mentored", "mentoring",
@@ -2258,15 +3874,15 @@ def _generate_summary(candidate, job, assessments, scores) -> str:
 
     gap_count = len(scores.get("gaps", []))
     if gap_count == 0:
-        summary += "No skill gaps were identified. "
-    elif gap_count <= 2:
+        summary += "No skill gaps were identified against the job requirements. "
+    elif gap_count <= 3:
         gap_skills = []
-        for g in scores["gaps"][:2]:
+        for g in scores["gaps"][:3]:
             skill_part = g.split(":")[0].replace("Missing required skill", "").replace("Below requirement in", "").strip()
             if skill_part:
                 gap_skills.append(skill_part)
         if gap_skills:
-            summary += f"Areas to probe further: {', '.join(gap_skills)}. "
+            summary += f"{gap_count} skill gap{'s' if gap_count > 1 else ''} identified that may need further evaluation. "
     else:
         summary += f"{gap_count} skill gaps were identified that may need further evaluation. "
 

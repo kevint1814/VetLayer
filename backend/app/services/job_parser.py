@@ -106,6 +106,7 @@ Given raw text from a job posting (which may be messy, with bullet points, abbre
      * 4 = Advanced (deep experience, can lead/architect)
      * 5 = Expert (industry-recognized mastery)
    - "weight": How important this skill is (0.0-1.0). Core requirements = 0.8-1.0, secondary = 0.5-0.7
+   - "category": One of: language, framework, library, database, cloud, devops, testing, tool, concept, data, mobile, ai, general_tool, methodology, security, enterprise, networking, business, strategy
 
    Use context clues to infer depth:
    - "Knowledge in" / "Familiarity with" → depth 2
@@ -122,8 +123,8 @@ Given raw text from a job posting (which may be messy, with bullet points, abbre
 
 Return JSON:
 {
-  "required_skills": [{"skill": "...", "min_depth": N, "weight": N.N}, ...],
-  "preferred_skills": [{"skill": "...", "min_depth": N, "weight": N.N}, ...],
+  "required_skills": [{"skill": "...", "min_depth": N, "weight": N.N, "category": "..."}, ...],
+  "preferred_skills": [{"skill": "...", "min_depth": N, "weight": N.N, "category": "..."}, ...],
   "experience_range": {"min_years": N, "max_years": N} or null,
   "title_suggestion": "..." or null
 }
@@ -135,19 +136,57 @@ Be smart about grouping related technologies. For example:
 - "Caching / Storage / Compatibility" → Browser APIs (depth 2)
 - "module bundlers like Webpack" → Webpack (depth 2)
 
-CRITICAL — ONLY extract TECHNICAL / HARD skills. Do NOT include soft skills or personality traits.
-EXCLUDE things like: communication, teamwork, collaboration, problem solving, leadership, time management,
-attention to detail, critical thinking, self-motivated, fast learner, passionate, creative thinking,
-project management (unless specifically about tools like Jira), adaptability, interpersonal skills,
-multitasking, work ethic, initiative, presentation skills, stakeholder management, mentoring (as a soft skill).
+CRITICAL — EXCLUDE generic soft skills and personality traits.
+EXCLUDE things like: communication (generic), teamwork, collaboration (generic), problem solving (generic),
+time management, attention to detail, critical thinking (generic), self-motivated, fast learner, passionate,
+creative thinking (generic), adaptability, interpersonal skills, multitasking, work ethic, initiative.
 
-INCLUDE only: programming languages, frameworks, libraries, databases, cloud platforms, DevOps tools,
+INCLUDE: programming languages, frameworks, libraries, databases, cloud platforms, DevOps tools,
 protocols, APIs, testing frameworks, data tools, design tools, specific methodologies (Agile/Scrum are borderline
  — only include if the posting heavily emphasizes it as a tooling/process skill), and other concrete technical skills
 that can be verified on a resume.
 
-The reason: VetLayer assesses skills by looking for evidence on resumes. Soft skills are rarely listed with
-concrete evidence, making them unreliable to assess and unfairly penalizing candidates.
+ALSO INCLUDE domain-specific professional competencies for business/strategy/operations roles.
+These are NOT soft skills — they are assessable domain skills with verifiable evidence on resumes:
+- "Client Experience Strategy" / "Customer Experience" / "CX Strategy" → category "business"
+- "Account Management" / "Key Account Management" → category "business"
+- "Business Development" / "Sales Strategy" → category "business"
+- "Experience Design" / "Service Design" → category "strategy"
+- "Operational Excellence" / "Process Improvement" / "Six Sigma" / "Lean" → category "methodology"
+- "Stakeholder Engagement" (when it's a core accountability, not just a trait) → category "business"
+- "Program Management" / "Portfolio Management" (when it's a core role function) → category "methodology"
+- "Executive Storytelling" / "Executive Facilitation" → category "strategy"
+- "Team Leadership" / "People Development" (when hiring/coaching/building teams is a core accountability) → category "business"
+- "Strategic Planning" / "Go-to-Market Strategy" (when it's a core function of the role) → category "strategy"
+- "Vendor Management" / "Partner Management" → category "business"
+- "Change Management" (when it's a structured discipline, not just adaptability) → category "methodology"
+- "Governance" / "Compliance" / "Risk Management" → category "business"
+
+The distinction: if a job posting lists a competency as a CORE ACCOUNTABILITY with specific expectations
+(e.g., "Own end-to-end governance for client visits"), it's an assessable domain skill.
+If it's listed as a generic nice-to-have trait (e.g., "strong communication skills"), it's a soft skill to exclude.
+
+ALSO INCLUDE general professional tools when explicitly listed in the job posting:
+- "Microsoft Office" / "MS Office" / "Office 365" → include as skill with category "general_tool"
+- "Google Workspace" / "G Suite" → include as skill with category "general_tool"
+- "AI tools" / "AI-powered tools" / "Copilot" / "ChatGPT" → include as skill with category "ai"
+- "Adobe Creative Suite" / "Photoshop" / "Illustrator" → include as skill with category "tool"
+- "Figma" / "Sketch" → include as skill with category "tool"
+These are assessable: candidates either have verifiable experience with them or they don't.
+
+ALSO INCLUDE methodologies and project management tools when explicitly listed:
+- "Agile" / "Scrum" / "Kanban" / "SAFe" → include with category "methodology"
+- "Jira" / "Asana" / "Monday" / "Trello" / "Linear" / "ClickUp" → include with category "tool"
+- "Confluence" / "Notion" → include with category "tool"
+These are assessable process skills: candidates either have verifiable experience using them or they don't.
+
+ALSO INCLUDE enterprise/CRM/security tools when explicitly listed:
+- "Salesforce" / "SAP" / "Oracle ERP" / "ServiceNow" / "Workday" → include with category "enterprise"
+- "Splunk" / "SIEM" / "Penetration Testing" / "SOC2" / "CISSP" → include with category "security"
+- "Cisco" / "Networking" / "Load Balancing" / "DNS" → include with category "networking"
+
+The reason for excluding soft skills: VetLayer assesses skills by looking for evidence on resumes. Soft skills
+are rarely listed with concrete evidence, making them unreliable to assess and unfairly penalizing candidates.
 
 Keep skill names clean and canonical — these will be matched against candidate resumes."""
 
@@ -156,30 +195,24 @@ Keep skill names clean and canonical — these will be matched against candidate
 # LLMs don't always follow instructions, so we strip these post-parse.
 # Normalized to lowercase for matching.
 _SOFT_SKILL_BLOCKLIST = {
-    # Communication & interpersonal
+    # Communication & interpersonal (generic traits)
     "communication", "communication skills", "verbal communication",
     "written communication", "interpersonal skills", "interpersonal",
-    "presentation skills", "presentations", "public speaking",
-    "stakeholder management", "stakeholder communication",
-    "client management", "client facing", "client-facing",
-    "relationship building", "relationship management",
-    "negotiation", "negotiation skills", "conflict resolution",
-    # Teamwork & collaboration
+    "public speaking",
+    "negotiation skills", "conflict resolution",
+    # Teamwork & collaboration (generic traits)
     "teamwork", "team player", "team work", "collaboration",
     "cross-functional collaboration", "cross functional",
     "working with others", "cooperative",
-    # Leadership & management (soft)
-    "leadership", "leadership skills", "people management",
+    # Generic leadership traits (NOT domain-specific leadership roles)
+    "leadership", "leadership skills",
     "mentoring", "mentorship", "coaching", "delegation",
-    "team management", "team building", "team leadership",
-    "strategic thinking", "strategic planning",
     "decision making", "decision-making",
-    # Problem solving & thinking
+    # Problem solving & thinking (generic)
     "problem solving", "problem-solving", "critical thinking",
     "analytical thinking", "analytical skills", "creative thinking",
-    "creativity", "innovation", "innovative thinking",
-    "troubleshooting",  # borderline — but too vague without a domain
-    "root cause analysis",
+    "creativity", "innovative thinking",
+    "troubleshooting",  # borderline — too vague without a domain
     # Work habits & personality
     "attention to detail", "detail oriented", "detail-oriented",
     "time management", "organizational skills", "organization",
@@ -191,18 +224,23 @@ _SOFT_SKILL_BLOCKLIST = {
     "passionate", "passion", "enthusiasm", "motivated",
     "accountable", "accountability", "ownership mentality",
     "dependable", "reliable", "reliability",
-    # Project management (soft — the tool versions like Jira are fine)
-    "project management", "project management skills",
-    "project planning", "resource management",
-    "stakeholder engagement", "change management",
-    # Other non-technical
-    "customer service", "customer support", "customer focus",
-    "business acumen", "business awareness", "commercial awareness",
+    # Generic non-technical
     "emotional intelligence", "empathy", "patience",
     "cultural awareness", "diversity", "inclusion",
-    "documentation",  # too vague — "technical documentation" or a tool is fine
     "research", "research skills",
 }
+# NOTE: The following are intentionally NOT in the blocklist because they are
+# assessable domain skills when they appear as core accountabilities in a JD:
+# - stakeholder management/engagement, client management, relationship management
+# - people management, team management, team leadership, team building
+# - strategic thinking, strategic planning
+# - project management, program management, resource management
+# - change management, business acumen, innovation
+# - customer service, customer support, customer focus
+# - presentation skills, negotiation
+# - documentation (could be a tool skill)
+# The LLM prompt instructs to only include these when they are core accountabilities,
+# and the category system (business/strategy) helps distinguish them from soft skills.
 
 
 def _is_soft_skill(skill_name: str) -> bool:
@@ -244,11 +282,31 @@ async def parse_job_requirements(raw_text: str, job_title: str = "") -> Dict[str
     preferred = result.get("preferred_skills", [])
 
     # Validate and normalize
+    valid_categories = {
+        "language", "framework", "library", "database", "cloud",
+        "devops", "testing", "tool", "concept", "data", "mobile",
+        "ai", "general_tool", "methodology", "security", "enterprise",
+        "networking", "business", "strategy", "unknown",
+    }
+    def _safe_int(val, default):
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return default
+
+    def _safe_float(val, default):
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return default
+
     for skill_list in [required, preferred]:
         for s in skill_list:
             s["skill"] = str(s.get("skill", "")).strip()
-            s["min_depth"] = max(1, min(5, int(s.get("min_depth", 2))))
-            s["weight"] = max(0.1, min(1.0, float(s.get("weight", 0.7))))
+            s["min_depth"] = max(1, min(5, _safe_int(s.get("min_depth", 2), 2)))
+            s["weight"] = max(0.1, min(1.0, _safe_float(s.get("weight", 0.7), 0.7)))
+            cat = str(s.get("category", "unknown")).strip().lower()
+            s["category"] = cat if cat in valid_categories else "unknown"
 
     # Remove empty entries
     required = [s for s in required if s["skill"]]
@@ -279,3 +337,16 @@ async def parse_job_requirements(raw_text: str, job_title: str = "") -> Dict[str
         "title_suggestion": result.get("title_suggestion"),
         "seniority": seniority,
     }
+
+
+def get_role_suggested_skills(title: str) -> list:
+    """
+    Get suggested skills based on job title alone.
+    Used when a recruiter creates a job with just a title and no detailed requirements.
+    Imports from analysis.py's role skill stack mapping.
+    """
+    try:
+        from app.api.routes.analysis import get_role_skill_stack
+        return get_role_skill_stack(title)
+    except ImportError:
+        return []

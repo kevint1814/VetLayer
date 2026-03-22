@@ -23,17 +23,26 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
 
     # ── LLM Provider ─────────────────────────────────────────────────
-    # Options: "openai" (default, uses GPT-4o Mini), "anthropic" (Claude)
-    LLM_PROVIDER: str = "openai"
+    # Options: "groq" (fast, Llama 3.3 70B), "openai" (GPT-4o Mini), "anthropic" (Claude)
+    LLM_PROVIDER: str = "groq"
     LLM_MAX_TOKENS: int = 8000
 
-    # OpenAI (default for development — GPT-4o Mini is cheap)
+    # Groq (primary — fast inference via Llama 3.3 70B)
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+
+    # OpenAI (fallback — GPT-4o Mini, reliable JSON)
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
 
-    # Anthropic (for production quality)
+    # Anthropic (alternative production quality)
     ANTHROPIC_API_KEY: str = ""
     ANTHROPIC_MODEL: str = "claude-sonnet-4-5-20250929"
+
+    # ── Fallback behavior ──────────────────────────────────────────
+    # When True, if primary provider fails, retry with OpenAI as fallback
+    LLM_FALLBACK_ENABLED: bool = True
+    LLM_FALLBACK_PROVIDER: str = "openai"
 
     # ── File uploads ─────────────────────────────────────────────────
     UPLOAD_DIR: str = "./uploads"

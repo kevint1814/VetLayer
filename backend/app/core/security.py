@@ -31,9 +31,18 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def validate_password_strength(password: str) -> Optional[str]:
-    """Return an error message if password is weak, else None."""
-    if len(password) < 4:
-        return "Password must be at least 4 characters long."
+    """Return an error message if password is weak, else None.
+    Enforces NIST-aligned minimum requirements."""
+    if len(password) < 8:
+        return "Password must be at least 8 characters long."
+    if not any(c.isupper() for c in password):
+        return "Password must contain at least one uppercase letter."
+    if not any(c.islower() for c in password):
+        return "Password must contain at least one lowercase letter."
+    if not any(c.isdigit() for c in password):
+        return "Password must contain at least one number."
+    if not any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?/" for c in password):
+        return "Password must contain at least one special character."
     return None
 
 

@@ -13,6 +13,7 @@ import json
 import asyncio
 import logging
 from typing import Optional, Tuple
+from datetime import datetime
 from dataclasses import dataclass, field, asdict
 
 from app.utils.llm_client import llm_client
@@ -25,13 +26,21 @@ RESUME_EXTRACTION_PROMPT = """Parse this resume into structured JSON. Be thoroug
 Return JSON with these keys:
 - name, email, phone, location, summary (string or null)
 - experience: [{company, title, start_date, end_date, description (include FULL role description text), technologies:[]}]
+  CRITICAL RULES for experience extraction:
+  * Each distinct company OR distinct date range MUST be a separate entry.
+  * If a company was acquired/merged (e.g. "Wipro acquired Citi Technology Services Apr'07-Apr'10"),
+    the pre-acquisition entity MUST be its own separate experience entry with its own dates.
+  * Sub-entries, indented lines, or "Earlier roles" with their own date ranges are SEPARATE entries.
+  * If someone held multiple titled roles at the same company across different date ranges,
+    each titled role is a separate entry (e.g. "Manager 2015-2018" then "Director 2018-2022" at same company).
+  * Never merge two date ranges into one entry. Every date range = one entry.
 - education: [{institution, degree, field, graduation_date, gpa}] — one entry per distinct institution+degree pair, highest degree first. Never duplicate entries. For Indian education: map Class X/10th/SSLC and Class XII/12th/HSC to their correct schools.
 - skills_mentioned: [all technical and professional skills found anywhere in the resume]
 - certifications: [{name, issuer, date}]
 - projects: [{name, description, technologies:[], url}]
 - links: [{url, label}]
-- years_experience: float (calculate from earliest work start date to now; 0 if no work experience)
-- education_level: "Bachelor's"/"Master's"/"PhD"/"Diploma"/"High School" or null
+- years_experience: float — MUST be calculated as (current year minus earliest work start year). Do NOT copy a number from the resume text; always compute from the actual dates.
+- education_level: highest education level. Use "Bachelor's"/"Master's"/"PhD"/"Diploma"/"High School" for academic degrees. For professional certifications that are equivalent to postgraduate qualifications (CA, ACA, CPA, CFA, ACCA, ACS, ICWA, CMA), use "Professional" if no higher academic degree is present.
 - current_role, current_company: most recent role and company as strings
 
 Use null (not "") for missing fields. Be thorough with experience descriptions — include all bullet points and achievements."""
@@ -48,6 +57,83 @@ _LOCATION_RE = re.compile(
     r'(?:^|\n)\s*([A-Z][a-zA-Z\s]+,\s*(?:[A-Z]{2}|[A-Z][a-zA-Z\s]+))\s*(?:\n|$|[|\-])',
     re.MULTILINE,
 )
+
+
+# ── Professional certifications that count as education equivalents ──
+_PROFESSIONAL_CERT_KEYWORDS = {
+    "ca", "aca", "fca", "cpa", "acca", "cfa", "acs", "fcs",
+    "icwa", "cma", "cisa", "cissp", "cga", "cgma", "chartered accountant",
+}
+
+_YEAR_RE = re.compile(r"((?:19|20)\d{2})")
+
+
+def _postprocess_extraction(structured: dict) -> dict:
+    """
+    Post-process LLM extraction output to fix common issues:
+    1. Recalculate years_experience from actual experience dates
+    2. Infer education_level from professional certifications when null
+    3. Validate experience entries have required fields
+    """
+    # ── Fix 1: Recalculate years_experience from actual dates ─────────
+    experiences = structured.get("experience") or []
+    if experiences:
+        earliest_year = None
+        for exp in experiences:
+            if not isinstance(exp, dict):
+                continue
+            start = str(exp.get("start_date") or "")
+            match = _YEAR_RE.search(start)
+            if match:
+                year = int(match.group(1))
+                if earliest_year is None or year < earliest_year:
+                    earliest_year = year
+        if earliest_year is not None:
+            calculated_years = round(datetime.now().year - earliest_year, 1)
+            llm_years = structured.get("years_experience")
+            # Use calculated value if LLM value is stale (>2 year difference)
+            # or if LLM didn't provide one
+            if llm_years is None or abs(calculated_years - llm_years) > 2:
+                logger.info(
+                    f"Correcting years_experience: LLM said {llm_years}, "
+                    f"calculated {calculated_years} from earliest start {earliest_year}"
+                )
+                structured["years_experience"] = calculated_years
+
+    # ── Fix 2: Infer education_level from professional certs ──────────
+    education_level = structured.get("education_level")
+    if not education_level or education_level.lower() in ("null", "none", "n/a", ""):
+        # Check certifications for professional qualifications
+        certs = structured.get("certifications") or []
+        cert_names = " ".join(
+            str(c.get("name", "") if isinstance(c, dict) else c).lower()
+            for c in certs
+        )
+        # Also check skills_mentioned and summary for cert mentions
+        skills_text = " ".join(
+            str(s).lower() for s in (structured.get("skills_mentioned") or [])
+        )
+        summary_text = (structured.get("summary") or "").lower()
+        all_text = f"{cert_names} {skills_text} {summary_text}"
+
+        for keyword in _PROFESSIONAL_CERT_KEYWORDS:
+            # Match whole word to avoid false positives (e.g. "aca" in "academic")
+            pattern = rf'\b{re.escape(keyword)}\b'
+            if re.search(pattern, all_text):
+                structured["education_level"] = "Professional"
+                logger.info(
+                    f"Inferred education_level='Professional' from certification: {keyword}"
+                )
+                break
+
+    # ── Fix 3: Validate experience entries ────────────────────────────
+    valid_experiences = []
+    for exp in experiences:
+        if isinstance(exp, dict) and (exp.get("company") or exp.get("title")):
+            valid_experiences.append(exp)
+    structured["experience"] = valid_experiences
+
+    return structured
 
 
 @dataclass
@@ -195,6 +281,9 @@ class ResumeParser:
         if raw_email and ("@" not in str(raw_email) or raw_email.lower() in ("email", "n/a", "null", "none")):
             raw_email = None
 
+        # Step 3: Post-process to fix common LLM extraction issues
+        structured = _postprocess_extraction(structured)
+
         parsed = ParsedResume(
             name=structured.get("name", "Unknown"),
             email=raw_email,
@@ -242,15 +331,117 @@ class ResumeParser:
         return await asyncio.to_thread(self._extract_text_docx_sync, content)
 
     def _extract_text_docx_sync(self, content: bytes) -> str:
-        """Synchronous DOCX text extraction."""
-        from docx import Document
+        """Synchronous DOCX text extraction.
 
-        doc = Document(io.BytesIO(content))
-        paragraphs = []
-        for para in doc.paragraphs:
-            if para.text.strip():
-                paragraphs.append(para.text)
-        return "\n".join(paragraphs)
+        Handles multiple scenarios:
+        1. Normal DOCX with paragraph text
+        2. Table-heavy DOCX (common in Naukri/Monster India exports)
+        3. HTML files masquerading as .docx (some job portals do this)
+        4. Corrupted or unreadable DOCX files
+        """
+        # ── Attempt 1: python-docx (paragraphs + tables + headers/footers) ──
+        try:
+            from docx import Document
+
+            doc = Document(io.BytesIO(content))
+            parts = []
+
+            # Extract from paragraphs (normal content)
+            for para in doc.paragraphs:
+                if para.text.strip():
+                    parts.append(para.text.strip())
+
+            # Extract from tables (Naukri-style table-based layouts)
+            # Naukri DOCX tables often have duplicate columns (same content in
+            # both cells). Deduplicate within each row to avoid sending
+            # duplicated text to the LLM, which wastes context and confuses
+            # extraction of roles like acquired-company sub-entries.
+            for table in doc.tables:
+                for row in table.rows:
+                    row_texts = []
+                    seen_cell_texts = set()
+                    for cell in row.cells:
+                        cell_text = cell.text.strip()
+                        if cell_text and cell_text not in seen_cell_texts:
+                            seen_cell_texts.add(cell_text)
+                            row_texts.append(cell_text)
+                    if row_texts:
+                        parts.append("\n".join(row_texts))
+
+            # Extract from headers and footers
+            for section in doc.sections:
+                if section.header:
+                    for para in section.header.paragraphs:
+                        if para.text.strip():
+                            parts.append(para.text.strip())
+                if section.footer:
+                    for para in section.footer.paragraphs:
+                        if para.text.strip():
+                            parts.append(para.text.strip())
+
+            # Deduplicate while preserving order (tables sometimes duplicate paragraph text)
+            seen = set()
+            unique_parts = []
+            for part in parts:
+                if part not in seen:
+                    seen.add(part)
+                    unique_parts.append(part)
+
+            text = "\n".join(unique_parts)
+            if text.strip():
+                return text
+
+        except Exception as e:
+            logger.warning(f"python-docx failed, trying fallback: {e}")
+
+        # ── Attempt 2: Raw XML extraction (handles some corrupted DOCX) ──
+        try:
+            import zipfile
+            from xml.etree import ElementTree
+
+            with zipfile.ZipFile(io.BytesIO(content)) as zf:
+                # Read word/document.xml
+                if "word/document.xml" in zf.namelist():
+                    xml_content = zf.read("word/document.xml")
+                    tree = ElementTree.fromstring(xml_content)
+                    # Extract all text nodes
+                    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+                    texts = []
+                    for t_elem in tree.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"):
+                        if t_elem.text:
+                            texts.append(t_elem.text)
+                    text = " ".join(texts)
+                    if text.strip():
+                        return text
+        except Exception as e:
+            logger.warning(f"Raw XML extraction failed: {e}")
+
+        # ── Attempt 3: HTML-masquerading-as-DOCX (common with Naukri exports) ──
+        try:
+            decoded = content.decode("utf-8", errors="replace")
+            if "<html" in decoded.lower() or "<body" in decoded.lower() or "<table" in decoded.lower():
+                # Strip HTML tags to get plain text
+                clean = re.sub(r"<style[^>]*>.*?</style>", "", decoded, flags=re.DOTALL | re.IGNORECASE)
+                clean = re.sub(r"<script[^>]*>.*?</script>", "", clean, flags=re.DOTALL | re.IGNORECASE)
+                clean = re.sub(r"<br\s*/?>", "\n", clean, flags=re.IGNORECASE)
+                clean = re.sub(r"</(?:p|div|tr|li|h[1-6])>", "\n", clean, flags=re.IGNORECASE)
+                clean = re.sub(r"<[^>]+>", " ", clean)
+                clean = re.sub(r"&nbsp;", " ", clean)
+                clean = re.sub(r"&amp;", "&", clean)
+                clean = re.sub(r"&lt;", "<", clean)
+                clean = re.sub(r"&gt;", ">", clean)
+                clean = re.sub(r"[ \t]+", " ", clean)
+                clean = re.sub(r"\n{3,}", "\n\n", clean)
+                text = clean.strip()
+                if len(text) > 50:  # Minimum viable resume text
+                    logger.info("Extracted text from HTML-disguised-as-DOCX")
+                    return text
+        except Exception as e:
+            logger.warning(f"HTML fallback extraction failed: {e}")
+
+        # ── All methods failed ──
+        logger.error("All DOCX extraction methods failed")
+        return ""
 
     async def _llm_extract_structure(self, raw_text: str) -> dict:
         """Use LLM to extract structured resume data from raw text."""

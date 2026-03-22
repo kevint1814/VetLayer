@@ -14,7 +14,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import engine, Base, AsyncSessionLocal
 from app.core.security import hash_password
-from app.api.routes import health, candidates, jobs, analysis, auth, admin
+from app.api.routes import health, candidates, jobs, analysis, auth, admin, ats_webhooks
 from app.models.user import User
 from app.models.company import Company
 from app.middleware.rate_limit import RateLimitMiddleware
@@ -136,3 +136,4 @@ app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(candidates.router, prefix="/api/candidates", tags=["Candidates"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["Analysis"])
+app.include_router(ats_webhooks.router, prefix="/api/v1", tags=["ATS Integration"])

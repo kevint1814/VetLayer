@@ -500,7 +500,7 @@ async def _run_single_pair(
                 )
 
                 # Apply adjacency boosts
-                _apply_adjacency_boosts(assessments)
+                _apply_adjacency_boosts(assessments, parsed_resume=resume_parsed)
 
                 # Delete existing skills for this candidate (avoid duplicates)
                 # Must delete evidence first (FK constraint), then skills

@@ -120,7 +120,9 @@ def generate_intelligence_brief_pdf(
 
     p = profile or {}
     today = datetime.now().strftime("%B %d, %Y")
-    ref = ref_code or f"VL-{datetime.now().strftime('%Y')}-{str(hash(candidate.get('name', '')))[-5:]}"
+    import hashlib as _hl
+    _name_hash = _hl.sha256(candidate.get("name", "candidate").encode()).hexdigest()[:5].upper()
+    ref = ref_code or f"VL-{datetime.now().strftime('%Y')}-{_name_hash}"
 
     # Track page state for helpers
     state = {"today": today, "ref": ref}
@@ -265,17 +267,35 @@ def generate_intelligence_brief_pdf(
     # ═══════════════════════════════════════════════════════════════════
     # SKILLS NARRATIVE + CAREER TIMELINE (two columns)
     # ═══════════════════════════════════════════════════════════════════
-    experience = parsed.get("experience", [])[:5]
+    experience = parsed.get("experience", [])  # Show all roles — pagination handles overflow
     skill_narrative = _sanitize(p.get("skill_narrative", ""))
     skill_categories = p.get("skill_categories", {})
     raw_skills = parsed.get("skills_mentioned", [])
     skills_prose = _build_skills_prose(skill_narrative, skill_categories, raw_skills)
 
-    # Build AI brief lookup by company name
+    # Build AI brief lookup by company+title to prevent cross-role copy-paste
     timeline_briefs = {}
+    # Track multiple briefs per company for positional fallback
+    _company_briefs_list: dict[str, list[str]] = {}
     for tb in p.get("career_timeline_briefs", []):
         if isinstance(tb, dict):
-            timeline_briefs[tb.get("company", "").lower().strip()] = tb.get("brief", "")
+            company = tb.get("company", "").lower().strip()
+            title = tb.get("title", "").lower().strip()
+            brief = tb.get("brief", "")
+            if not company or not brief:
+                continue
+            # Key by company+title for exact matching
+            if title:
+                timeline_briefs[f"{company}|{title}"] = brief
+            # Collect all briefs per company in order (for positional matching)
+            _company_briefs_list.setdefault(company, []).append(brief)
+            # Company-only key: only store if there's exactly one role at this company
+            # (avoids first-role-wins when multiple roles exist at same company)
+    for comp, briefs_list in _company_briefs_list.items():
+        if len(briefs_list) == 1:
+            timeline_briefs[comp] = briefs_list[0]
+    # Store the positional list for multi-role companies
+    timeline_briefs["__positional__"] = _company_briefs_list
 
     # Check if we have enough space on current page (need ~200px minimum)
     if y < 200:
@@ -301,9 +321,19 @@ def generate_intelligence_brief_pdf(
         y_left = _para(c, skills_prose, STYLE_SKILL_NARRATIVE, LEFT_X, COL_W, y_left)
 
     # Right: Career Timeline (with AI-generated descriptions)
+    # Pre-compute per-company role index for positional brief matching
+    _company_role_counters: dict[str, int] = {}
+    _exp_role_index: list[int] = []
+    for exp in experience:
+        comp_key = (exp.get("company") or "").lower().strip()
+        idx_at_comp = _company_role_counters.get(comp_key, 0)
+        _exp_role_index.append(idx_at_comp)
+        _company_role_counters[comp_key] = idx_at_comp + 1
+
     # Render entries that fit; collect remaining for overflow continuation
     y_right = _section_label(c, "CAREER TIMELINE", RIGHT_X, COL_W, y_right)
     remaining_exp = []
+    remaining_indices = []
     if not experience:
         # No work experience — show N/A
         c.setFont("Helvetica", 9.5)
@@ -315,8 +345,9 @@ def generate_intelligence_brief_pdf(
             entry_est = _estimate_timeline_entry_h(c, exp)
             if y_right - entry_est < FOOTER_Y + 10:
                 remaining_exp = experience[idx:]
+                remaining_indices = _exp_role_index[idx:]
                 break
-            y_right = _draw_timeline_entry(c, exp, timeline_briefs, RIGHT_X, COL_W, y_right)
+            y_right = _draw_timeline_entry(c, exp, timeline_briefs, RIGHT_X, COL_W, y_right, _exp_role_index[idx])
 
     y = min(y_left, y_right) - 4
 
@@ -325,27 +356,24 @@ def generate_intelligence_brief_pdf(
         _draw_footer(c)
         y = _new_page(c, state)
 
-    # If there are remaining timeline entries, continue (same page if room, else new page)
+    # If there are remaining timeline entries, continue on current or new page
     if remaining_exp:
-        # Estimate total height needed for remaining entries
-        total_remaining_h = 20  # label
-        for exp in remaining_exp:
-            total_remaining_h += _estimate_timeline_entry_h(c, exp)
-
-        if y - total_remaining_h < FOOTER_Y + 10:
-            # Not enough room on current page; start fresh
+        # Check if there's room for at least the label + one entry (~100px)
+        min_needed = 100
+        if y - min_needed < FOOTER_Y + 10:
             _draw_footer(c)
             y = _new_page(c, state)
 
         _draw_sep(c, y)
         y -= 14
         y = _section_label_centered(c, "CAREER TIMELINE (CONTINUED)", y)
-        for exp in remaining_exp:
+        for ri, exp in enumerate(remaining_exp):
             entry_est = _estimate_timeline_entry_h(c, exp)
             if y - entry_est < FOOTER_Y + 10:
                 _draw_footer(c)
                 y = _new_page(c, state)
-            y = _draw_timeline_entry(c, exp, timeline_briefs, MARGIN, CONTENT_W, y)
+            r_idx = remaining_indices[ri] if ri < len(remaining_indices) else 0
+            y = _draw_timeline_entry(c, exp, timeline_briefs, MARGIN, CONTENT_W, y, r_idx)
 
     _draw_sep(c, y)
     y -= 14
@@ -420,7 +448,7 @@ def generate_intelligence_brief_pdf(
 
         y = _section_label_centered(c, "CONSIDERATIONS", y)
         for con in considerations[:3]:
-            con_text = _sanitize(con)
+            con_text = _sanitize(str(con) if not isinstance(con, str) else con)
             para = Paragraph(con_text, STYLE_CONSIDER)
             _, h = para.wrap(CONTENT_W - 20, 200)
             c.setStrokeColor(C_BORDER)
@@ -687,30 +715,61 @@ def _draw_pills_centered(c, items, y, font_size=9, pill_h=20, pad=24):
 
 
 def _abbreviate_education(edu: str) -> str:
-    """Shorten education text for metric display."""
+    """Shorten education text for metric display.
+
+    Order matters: longer/more-specific patterns must come first to prevent
+    partial matches (e.g., 'Bachelor of Business Administration' before 'Bachelor's').
+    """
     if not edu or edu == "N/A":
         return edu
-    replacements = {
-        "Computer Science": "CompSci",
-        "computer science": "CompSci",
-        "Information Technology": "IT",
-        "information technology": "IT",
-        "Business Administration": "Business",
-        "Electrical Engineering": "EE",
-        "Mechanical Engineering": "MechE",
-        "Software Engineering": "SWE",
-        "Data Science": "Data Sci",
-        "Bachelor of Science": "B.S.",
-        "Bachelor of Arts": "B.A.",
-        "Master of Science": "M.S.",
-        "Master of Arts": "M.A.",
-        "Master of Business Administration": "MBA",
-        "Doctor of Philosophy": "Ph.D.",
-        "Bachelor's": "B.S.",
+
+    # Check full-string matches first (case-insensitive)
+    edu_lower = edu.lower().strip()
+    full_matches = {
+        "bachelor's": "Bachelor's",
+        "master's": "Master's",
+        "diploma": "Diploma",
+        "high school": "High School",
+        "phd": "Ph.D.",
+        "doctorate": "Ph.D.",
+        "professional": "Professional",
     }
+    if edu_lower in full_matches:
+        return full_matches[edu_lower]
+
+    # Ordered replacements — longest/most-specific first
+    replacements = [
+        # Full degree names (must come before partial matches)
+        ("Bachelor of Business Administration", "BBA"),
+        ("Bachelor of Commerce", "B.Com"),
+        ("Bachelor of Engineering", "B.E."),
+        ("Bachelor of Technology", "B.Tech"),
+        ("Bachelor of Science", "B.Sc."),
+        ("Bachelor of Arts", "B.A."),
+        ("Master of Business Administration", "MBA"),
+        ("Master of Science", "M.Sc."),
+        ("Master of Arts", "M.A."),
+        ("Master of Technology", "M.Tech"),
+        ("Master of Engineering", "M.E."),
+        ("Master of Commerce", "M.Com"),
+        ("Doctor of Philosophy", "Ph.D."),
+        # Field abbreviations
+        ("Computer Science", "CS"),
+        ("computer science", "CS"),
+        ("Information Technology", "IT"),
+        ("information technology", "IT"),
+        ("Business Administration", "BA"),
+        ("Electrical Engineering", "EE"),
+        ("Mechanical Engineering", "ME"),
+        ("Electronics & Communication Engineering", "ECE"),
+        ("Electronics and Communication Engineering", "ECE"),
+        ("Software Engineering", "SWE"),
+        ("Data Science", "Data Sci"),
+    ]
     result = edu
-    for long, short in replacements.items():
+    for long, short in replacements:
         result = result.replace(long, short)
+
     if len(result) > 16:
         result = result[:15] + "."
     return result
@@ -771,7 +830,7 @@ def _build_skills_prose(skill_narrative: str, skill_categories: dict, raw_skills
     return ""
 
 
-def _draw_timeline_entry(c, exp, timeline_briefs, x, width, y):
+def _draw_timeline_entry(c, exp, timeline_briefs, x, width, y, role_index_at_company: int = 0):
     """Draw a single career timeline entry. Returns new y."""
     title = _sanitize(exp.get("title", "Role"))
     comp = _sanitize(exp.get("company", ""))
@@ -780,7 +839,7 @@ def _draw_timeline_entry(c, exp, timeline_briefs, x, width, y):
     dates = f"{start}  to  {end}" if start else ""
 
     # Look up AI-generated brief (no resume fallback — brief is AI only)
-    ai_brief = _find_timeline_brief(timeline_briefs, comp)
+    ai_brief = _find_timeline_brief(timeline_briefs, comp, title, role_index_at_company)
 
     if dates:
         c.setFont("Helvetica", 8)
@@ -812,23 +871,77 @@ def _draw_timeline_entry(c, exp, timeline_briefs, x, width, y):
     return y
 
 
-def _find_timeline_brief(briefs: dict, company: str) -> str:
-    """Look up AI-generated brief for a company. Uses fuzzy matching."""
+def _find_timeline_brief(briefs: dict, company: str, title: str = "", role_index_at_company: int = 0) -> str:
+    """Look up AI-generated brief for a company+title combo.
+
+    Matching priority:
+    1. Exact company+title compound key
+    2. Fuzzy company+title (title words overlap)
+    3. Exact company-only key (only if single role at company)
+    4. Positional match within same company (for multi-role companies without title keys)
+    5. First-word fuzzy on company name
+    Does NOT do substring matching to prevent cross-company copy-paste.
+    """
     if not briefs or not company:
         return ""
     comp_lower = company.lower().strip()
-    # Exact match
-    if comp_lower in briefs:
+    title_lower = title.lower().strip() if title else ""
+
+    # Priority 1: Exact company+title match
+    if title_lower:
+        compound_key = f"{comp_lower}|{title_lower}"
+        if compound_key in briefs:
+            return briefs[compound_key]
+
+    # Priority 2: Fuzzy title match — find compound keys for this company and pick best title overlap
+    if title_lower:
+        title_words = set(title_lower.split())
+        best_match = ""
+        best_overlap = 0
+        for key, val in briefs.items():
+            if "|" not in key:
+                continue
+            key_comp, key_title = key.split("|", 1)
+            if key_comp != comp_lower:
+                # Also check first-word match for company
+                if not (key_comp.split()[0] == comp_lower.split()[0] if comp_lower.split() and key_comp.split() else False):
+                    continue
+            key_title_words = set(key_title.split())
+            overlap = len(title_words & key_title_words)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_match = val
+        if best_match and best_overlap >= 1:
+            return best_match
+
+    # Priority 3: Exact company match (only stored if single role at company)
+    if comp_lower in briefs and not isinstance(briefs[comp_lower], (dict, list)):
         return briefs[comp_lower]
-    # Partial match (company name might be abbreviated in one source)
-    for key, val in briefs.items():
-        if key in comp_lower or comp_lower in key:
-            return val
-        # Try matching first word (e.g. "MOVZZ" matches "MOVZZ (Series A)")
+
+    # Priority 4: Positional match for multi-role companies
+    positional = briefs.get("__positional__", {})
+    comp_briefs = positional.get(comp_lower, [])
+    if not comp_briefs:
+        # Try first-word match on company
         comp_first = comp_lower.split()[0] if comp_lower else ""
-        key_first = key.split()[0] if key else ""
-        if comp_first and key_first and (comp_first == key_first):
-            return val
+        if comp_first and len(comp_first) >= 3:
+            for pkey, pval in positional.items():
+                pfirst = pkey.split()[0] if pkey else ""
+                if pfirst == comp_first:
+                    comp_briefs = pval
+                    break
+    if comp_briefs and role_index_at_company < len(comp_briefs):
+        return comp_briefs[role_index_at_company]
+
+    # Priority 5: First-word match only (conservative fuzzy)
+    comp_first = comp_lower.split()[0] if comp_lower else ""
+    if comp_first and len(comp_first) >= 3:
+        for key, val in briefs.items():
+            if "|" in key or key == "__positional__":
+                continue
+            key_first = key.split()[0] if key else ""
+            if key_first and comp_first == key_first and isinstance(val, str):
+                return val
     return ""
 
 
