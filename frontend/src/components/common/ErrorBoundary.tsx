@@ -64,7 +64,7 @@ export default class ErrorBoundary extends Component<Props, State> {
             </p>
 
             {/* Show error message in dev for easier debugging */}
-            {process.env.NODE_ENV !== "production" && this.state.error && (
+            {import.meta.env.MODE !== "production" && this.state.error && (
               <pre className="text-xs text-left bg-surface-secondary rounded-lg p-3 mb-6 overflow-auto max-h-32 text-red-600 border border-red-100">
                 {this.state.error.message}
               </pre>
