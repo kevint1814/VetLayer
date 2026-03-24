@@ -42,6 +42,21 @@ class TestExtractMonth:
         assert _extract_month("01/2020") == 1
         assert _extract_month("12/2020") == 12
 
+    def test_yyyy_mm_iso_format(self):
+        """YYYY-MM is the most common format from VetLayer's resume parser."""
+        assert _extract_month("2022-09") == 9
+        assert _extract_month("2004-11") == 11
+        assert _extract_month("2008-01") == 1
+        assert _extract_month("2014-02") == 2
+
+    def test_yyyy_mm_slash_format(self):
+        assert _extract_month("2022/09") == 9
+
+    def test_mm_dash_yyyy_still_works(self):
+        """Ensure MM-YYYY still works after adding YYYY-MM support."""
+        assert _extract_month("09-2022") == 9
+        assert _extract_month("11-2004") == 11
+
     def test_no_month(self):
         assert _extract_month("2020") == 6  # Default to mid-year
         assert _extract_month("") == 6
@@ -189,3 +204,41 @@ class TestEstimateGapMonths:
         # End of first job is after start of second — negative or zero gap
         assert gap is not None
         assert gap <= 0
+
+    def test_yyyy_mm_gap_detection(self):
+        """YYYY-MM dates must produce correct gaps, not 48-month phantoms."""
+        # ACS (ended 2004-11) → MphasiS (started 2004-11): gap = 0
+        gap = _estimate_gap_months("2004-11", "2004-11")
+        assert gap is not None
+        assert gap == 0
+
+    def test_yyyy_mm_continuous_career(self):
+        """End-to-end: Deepaka's career through analysis.py date functions."""
+        career = [
+            {"start_date": "2003-06", "end_date": "2004-03"},
+            {"start_date": "2004-06", "end_date": "2004-11"},
+            {"start_date": "2004-11", "end_date": "2008-01"},
+            {"start_date": "2008-01", "end_date": "2009-01"},
+            {"start_date": "2009-02", "end_date": "2014-01"},
+            {"start_date": "2014-02", "end_date": "2022-08"},
+            {"start_date": "2022-09", "end_date": "2025-09"},
+        ]
+        sorted_career = _sort_experiences_by_start(career)
+        # No gap should exceed 6 months (the non-senior threshold)
+        for i in range(len(sorted_career) - 1):
+            end = sorted_career[i].get("end_date", "")
+            start = sorted_career[i + 1].get("start_date", "")
+            gap = _estimate_gap_months(end, start)
+            assert gap is not None, f"Gap between {end} and {start} returned None"
+            assert gap <= 6, f"Phantom gap of {gap} months between {end} and {start}"
+
+
+class TestDateToMonthsYYYYMM:
+    """Regression: _date_to_months in analysis.py must handle YYYY-MM."""
+
+    def test_yyyy_mm_date(self):
+        assert _date_to_months("2022-09") == 2022 * 12 + 9
+
+    def test_yyyy_mm_preserves_month(self):
+        assert _date_to_months("2004-11") == 2004 * 12 + 11
+        assert _date_to_months("2008-01") == 2008 * 12 + 1

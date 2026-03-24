@@ -58,7 +58,7 @@ STYLE_BODY_LEFT = ParagraphStyle(
 )
 STYLE_STRENGTH = ParagraphStyle(
     "strength", fontName="Helvetica", fontSize=9, leading=14.5,
-    textColor=C_DARK, alignment=TA_JUSTIFY,
+    textColor=C_DARK, alignment=TA_JUSTIFY, wordWrap="CJK",
 )
 STYLE_CONSIDER = ParagraphStyle(
     "consider", fontName="Helvetica", fontSize=9, leading=14,
@@ -94,15 +94,41 @@ STYLE_EDU_DETAIL = ParagraphStyle(
 )
 
 
+import re as _re
+
+# Known company names with correct casing (LLM often miscapitalizes these)
+_COMPANY_CASING = {
+    "pwc": "PwC", "kpmg": "KPMG", "ey": "EY", "ibm": "IBM",
+    "aws": "AWS", "gcp": "GCP", "wipro": "Wipro", "tcs": "TCS",
+    "hcl": "HCL", "jpmorgan": "JPMorgan", "hsbc": "HSBC",
+}
+
+
+def _fix_company_casing(text: str) -> str:
+    """Fix known company name casing in text."""
+    for wrong, correct in _COMPANY_CASING.items():
+        text = _re.sub(rf'\b{_re.escape(wrong)}\b', correct, text, flags=_re.IGNORECASE)
+    return text
+
+
 def _sanitize(text: str) -> str:
     """Remove dashes, emdashes, and endashes from content. Replace with commas or spaces."""
     if not text:
         return text
-    text = text.replace("\u2014", ", ")   # emdash
-    text = text.replace("\u2013", ", ")   # endash
+    text = text.replace(" \u2014 ", ", ")   # spaced emdash → comma
+    text = text.replace("\u2014", ", ")      # bare emdash → comma
+    text = text.replace(" \u2013 ", ", ")    # spaced endash → comma
+    text = text.replace("\u2013", ", ")      # bare endash → comma
     text = text.replace(" -- ", ", ")
     text = text.replace("--", ", ")
     text = text.replace(" - ", ", ")
+    # Clean up stray double-spaces from replacements
+    while "  " in text:
+        text = text.replace("  ", " ")
+    # Fix ", ," or " ," artifacts
+    text = text.replace(" ,", ",")
+    # Fix known company name casing
+    text = _fix_company_casing(text)
     return text
 
 
@@ -835,7 +861,7 @@ def _draw_timeline_entry(c, exp, timeline_briefs, x, width, y, role_index_at_com
     title = _sanitize(exp.get("title", "Role"))
     comp = _sanitize(exp.get("company", ""))
     start = _sanitize(exp.get("start_date", ""))
-    end = _sanitize(exp.get("end_date", "Present"))
+    end = _sanitize(exp.get("end_date") or "Present")
     dates = f"{start}  to  {end}" if start else ""
 
     # Look up AI-generated brief (no resume fallback — brief is AI only)

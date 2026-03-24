@@ -492,11 +492,40 @@ async def _run_single_pair(
                 if not resume_parsed:
                     raise ValueError("Candidate resume not parsed")
 
-                # Run skill pipeline
+                # Detect role type for cluster-specific assessment
+                from app.services.role_type_detector import detect_role_type
+                from app.services.experience_trajectory import analyze_trajectory
+                from app.services.soft_skill_detector import detect_soft_skill_proxies
+                from app.services.domain_fit import assess_domain_fit
+
+                role_type_info = detect_role_type(
+                    job_title=job.title or "",
+                    job_description=job.description or "",
+                    required_skills=required_skills,
+                    preferred_skills=preferred_skills,
+                )
+
+                # Compute trajectory, soft skills, and domain fit
+                trajectory_info = analyze_trajectory(
+                    parsed_resume=resume_parsed,
+                    target_job_title=job.title or "",
+                )
+                soft_skill_info = detect_soft_skill_proxies(resume_parsed)
+                domain_fit_info = assess_domain_fit(
+                    job_title=job.title or "",
+                    job_description=job.description or "",
+                    parsed_resume=resume_parsed,
+                    required_skills=required_skills,
+                )
+
+                # Run skill pipeline with cluster-aware prompts
                 assessments, pipeline_timings = await skill_pipeline.run(
                     parsed_resume=resume_parsed,
                     required_skills=required_skills,
                     preferred_skills=preferred_skills,
+                    job_title=job.title or "",
+                    role_type=role_type_info.get("type", "hybrid"),
+                    domain_profile=role_type_info.get("signals", {}).get("domain_profile"),
                 )
 
                 # Apply adjacency boosts
@@ -544,11 +573,14 @@ async def _run_single_pair(
                         )
                         db.add(evidence)
 
-                # Compute scores
+                # Compute scores with full context
                 scores = _compute_scores(
                     assessments, required_skills, preferred_skills, resume_parsed,
                     experience_range=job.experience_range,
                     job_title=job.title or "",
+                    role_type=role_type_info,
+                    trajectory=trajectory_info,
+                    soft_skills=soft_skill_info,
                 )
                 scores["breakdown"]["_pipeline_timings"] = timings_to_dict(pipeline_timings)
 
@@ -565,6 +597,7 @@ async def _run_single_pair(
                     resume_parsed=resume_parsed,
                     candidate_name=candidate.name or "the candidate",
                     job_title=job.title or "this role",
+                    role_type=role_type_info.get("type", "skill_heavy"),
                 )
 
                 # Create analysis result

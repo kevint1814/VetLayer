@@ -28,6 +28,13 @@ from app.services.batch_runner import (
     run_batch_analysis, get_batch_state, list_batch_states,
     load_saved_batches, load_saved_batch, delete_saved_batch,
 )
+from app.services.role_type_detector import detect_role_type
+from app.services.experience_trajectory import analyze_trajectory, _get_seniority_level
+from app.services.soft_skill_detector import detect_soft_skill_proxies, get_soft_skill_gaps_for_role
+from app.services.dynamic_taxonomy import (
+    generate_skill_taxonomy, generate_batch_taxonomies,
+    get_dynamic_evidence_aliases, is_dynamically_generated,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +130,60 @@ async def trigger_analysis(
 
     resume_parsed = candidate.resume_parsed
 
+    # ── Detect role type for adaptive scoring ─────────────────────────
+    role_type_info = detect_role_type(
+        job_title=job.title or "",
+        job_description=job.description or "",
+        required_skills=required_skills,
+        preferred_skills=preferred_skills,
+    )
+    logger.info(f"Role type: {role_type_info['type']} (confidence={role_type_info['confidence']:.2f})")
+
+    # ── Analyze experience trajectory ─────────────────────────────────
+    trajectory_info = analyze_trajectory(
+        parsed_resume=resume_parsed,
+        target_job_title=job.title or "",
+    )
+    logger.info(f"Trajectory score: {trajectory_info['trajectory_score']}, type={trajectory_info['progression_type']}")
+
+    # ── Detect soft skill proxies ─────────────────────────────────────
+    soft_skill_info = detect_soft_skill_proxies(resume_parsed)
+    logger.info(f"Soft skill score: {soft_skill_info['soft_skill_score']}, strongest={soft_skill_info['strongest_areas']}")
+
+    # ── Assess domain fit ──────────────────────────────────────────────
+    from app.services.domain_fit import assess_domain_fit
+    domain_fit_info = assess_domain_fit(
+        job_title=job.title or "",
+        job_description=job.description or "",
+        parsed_resume=resume_parsed,
+        required_skills=required_skills,
+    )
+    logger.info(f"Domain fit: {domain_fit_info['domain_match']} (domain={domain_fit_info['jd_domain']}, score={domain_fit_info['domain_fit_score']})")
+
+    # ── Generate dynamic taxonomies for unknown skills ────────────────
+    # Use skill ontology first (decoupled from evidence aliases), then
+    # fall back to evidence aliases for coverage of tech-only skills
+    from app.services.skill_ontology import resolve_skill as _ontology_resolve
+    from app.services.skill_pipeline import _EVIDENCE_ALIASES
+    taxonomy_skills = set(_EVIDENCE_ALIASES.keys())
+    unknown_skills = []
+    for s in (required_skills or []) + (preferred_skills or []):
+        skill_name = s.get("skill", "").lower().strip()
+        if not skill_name:
+            continue
+        # Known if in ontology OR in evidence aliases
+        known_in_ontology = _ontology_resolve(skill_name) is not None
+        known_in_aliases = (skill_name in taxonomy_skills or
+                            any(skill_name in aliases for aliases in _EVIDENCE_ALIASES.values()))
+        if not known_in_ontology and not known_in_aliases:
+            unknown_skills.append(s.get("skill", ""))
+    if unknown_skills:
+        logger.info(f"Generating dynamic taxonomies for {len(unknown_skills)} unknown skills: {unknown_skills}")
+        try:
+            await generate_batch_taxonomies(unknown_skills, job_title=job.title or "", job_description=job.description or "")
+        except Exception as e:
+            logger.warning(f"Dynamic taxonomy generation failed (non-fatal): {e}")
+
     # ── Run Job-Focused Skill Assessment ──────────────────────────────
     logger.info(f"Running analysis: candidate={candidate.name}, job={job.title}")
     logger.info(f"Assessing {len(required_skills)} required + {len(preferred_skills)} preferred skills")
@@ -133,6 +194,8 @@ async def trigger_analysis(
             required_skills=required_skills,
             preferred_skills=preferred_skills,
             job_title=job.title or "",
+            role_type=role_type_info.get("type", "hybrid"),
+            domain_profile=role_type_info.get("signals", {}).get("domain_profile"),
         )
     except Exception as e:
         logger.error(f"Skill pipeline failed: {e}")
@@ -180,6 +243,9 @@ async def trigger_analysis(
         assessments, required_skills, preferred_skills, resume_parsed,
         experience_range=job.experience_range,
         job_title=job.title or "",
+        role_type=role_type_info,
+        trajectory=trajectory_info,
+        soft_skills=soft_skill_info,
     )
 
     # Include pipeline timings in the breakdown for transparency
@@ -192,6 +258,10 @@ async def trigger_analysis(
         assessments, resume_parsed, scores,
         experience_range=job.experience_range,
         job_title=job.title or "",
+        role_type=role_type_info,
+        soft_skills=soft_skill_info,
+        trajectory=trajectory_info,
+        domain_fit=domain_fit_info,
     )
 
     # ── Generate interview questions ──────────────────────────────────
@@ -200,6 +270,7 @@ async def trigger_analysis(
         resume_parsed=resume_parsed,
         candidate_name=candidate.name or "the candidate",
         job_title=job.title or "this role",
+        role_type=scores.get("role_type", "skill_heavy"),
     )
 
     # ── Create analysis result ───────────────────────────────────────
@@ -212,10 +283,21 @@ async def trigger_analysis(
         experience_score=scores["experience"],
         education_score=scores["education"],
         depth_score=scores["depth"],
-        skill_breakdown=scores["breakdown"],
+        skill_breakdown={
+            **scores["breakdown"],
+            "_score_weights": scores.get("score_weights", {}),
+            "_score_drivers": scores.get("score_drivers", []),
+            "_analysis_confidence": scores.get("analysis_confidence", 0),
+            "_role_type": scores.get("role_type", "skill_heavy"),
+            "_role_type_confidence": scores.get("role_type_confidence", 0),
+            "_role_type_signals": scores.get("role_type_signals", {}),
+            "_trajectory": scores.get("trajectory", {}),
+            "_soft_skill_proxies": scores.get("soft_skill_proxies", {}),
+            "_domain_fit": domain_fit_info,
+        },
         strengths=scores["strengths"],
         gaps=scores["gaps"],
-        summary_text=_generate_summary(candidate, job, assessments, scores),
+        summary_text=_generate_summary(candidate, job, assessments, scores, domain_fit=domain_fit_info),
         recommendation=scores["recommendation"],
         llm_model_used=(
             settings.GROQ_MODEL if settings.LLM_PROVIDER == "groq"
@@ -545,6 +627,8 @@ async def export_batch_brief(
         if not candidate:
             continue
 
+        # Extract universal scoring metadata from skill_breakdown
+        sb = (analysis.skill_breakdown if analysis else {}) or {}
         cand_dict = {
             "name": candidate.name or r.get("candidate_name", "Unknown"),
             "current_role": candidate.current_role or "",
@@ -560,6 +644,14 @@ async def export_batch_brief(
                 "recommendation": analysis.recommendation if analysis else r.get("recommendation", ""),
                 "strengths": analysis.strengths if analysis else [],
                 "gaps": analysis.gaps if analysis else [],
+                # Universal scoring fields
+                "role_type": sb.get("_role_type", "skill_heavy"),
+                "role_type_confidence": sb.get("_role_type_confidence", 0),
+                "trajectory": sb.get("_trajectory", {}),
+                "soft_skill_proxies": sb.get("_soft_skill_proxies", {}),
+                "score_drivers": sb.get("_score_drivers", []),
+                "score_weights": sb.get("_score_weights", {}),
+                "domain_fit": sb.get("_domain_fit", {}),
             },
             "risk_flags": [
                 {
@@ -2136,20 +2228,17 @@ def _compute_recency_factor(assessment, parsed_resume: dict) -> float:
         # Scan experience for most recent mention of this skill
         years_ago = _estimate_years_since_last_use(assessment.name, parsed_resume, current_year)
 
-    # Recency decay curve:
+    # Smooth recency decay curve (no hard cliffs):
     #   0 years ago → 1.0 (current)
-    #   1-2 years ago → 0.95
-    #   3-4 years ago → 0.85
-    #   5-7 years ago → 0.70
-    #   8+ years ago → 0.50
+    #   2 years ago → 1.0 (grace period)
+    #   4 years ago → ~0.85
+    #   6 years ago → ~0.70
+    #   8 years ago → ~0.55
+    #   10+ years ago → 0.50 (floor)
     if years_ago <= 2:
         return 1.0
-    elif years_ago <= 4:
-        return 0.90
-    elif years_ago <= 7:
-        return 0.75
-    else:
-        return 0.55
+    # Smooth exponential-ish decay: max(0.50, 1.0 - 0.075 * (years_ago - 2))
+    return max(0.50, round(1.0 - 0.075 * (years_ago - 2), 3))
 
 
 def _estimate_years_since_last_use(skill_name: str, parsed_resume: dict, current_year: int) -> int:
@@ -2391,19 +2480,35 @@ def _compute_education_score(assessments, required_skills: list, parsed_resume: 
 # ═══════════════════════════════════════════════════════════════════════
 
 def _generate_risk_flags(assessments, parsed_resume: dict, scores: dict,
-                         experience_range: dict = None, job_title: str = "") -> list:
+                         experience_range: dict = None, job_title: str = "",
+                         role_type: dict = None, soft_skills: dict = None,
+                         trajectory: dict = None, domain_fit: dict = None) -> list:
     """
     Deterministic risk flag generation based on analysis data.
     No LLM calls needed — purely rule-based.
 
-    Two categories of flags:
+    Four categories of flags:
       A. Inconsistency/red-flag detectors (inflation, gaps, staleness, seniority mismatch)
       B. Weak-profile warnings (low overall score, thin resume, massive skill gaps,
          shallow depth across the board, no transferable strengths)
+      C. Universal scoring flags (soft skill gaps, trajectory concerns, industry mismatch)
+      D. Domain-fit flags (industry mismatch, domain-specific gaps)
     """
     if experience_range is None:
         experience_range = {}
+    if role_type is None:
+        role_type = {}
+    if soft_skills is None:
+        soft_skills = {}
+    if trajectory is None:
+        trajectory = {}
+    if domain_fit is None:
+        domain_fit = {}
     flags = []
+
+    # ── Seniority-awareness: determine candidate seniority for flag calibration ──
+    candidate_years = _estimate_candidate_years(parsed_resume)
+    is_senior_profile = (candidate_years is not None and candidate_years >= 12)
 
     overall = scores.get("overall", 0)
     recommendation = scores.get("recommendation", "")
@@ -2432,8 +2537,8 @@ def _generate_risk_flags(assessments, parsed_resume: dict, scores: dict,
             ),
             "evidence": f"Estimated {candidate_years} years experience vs. {seniority_level}-level role",
             "suggestion": _sanitize_text(
-                "Ask about scope of past work: system design ownership, mentoring, "
-                "cross-team impact, and technical strategy contributions."
+                "Ask about scope of past work: ownership of key initiatives, mentoring, "
+                "cross-team impact, and strategic contributions."
             ),
         })
     elif seniority_level in ("senior", "lead", "architect") and candidate_years is not None and candidate_years < 4:
@@ -2449,7 +2554,7 @@ def _generate_risk_flags(assessments, parsed_resume: dict, scores: dict,
             "evidence": f"Estimated {candidate_years} years experience vs. {seniority_level}-level role",
             "suggestion": _sanitize_text(
                 "Focus interview questions on leadership experience, mentoring, "
-                "and independent technical decision-making."
+                "and independent decision-making."
             ),
         })
 
@@ -2482,10 +2587,13 @@ def _generate_risk_flags(assessments, parsed_resume: dict, scores: dict,
                     f"Consider probing this skill further in interview."
                 ),
                 "evidence": _sanitize_text(a.depth_reasoning or ""),
-                "suggestion": _sanitize_text(f"Ask specific architecture or implementation questions about {a.name} to verify depth."),
+                "suggestion": _sanitize_text(f"Ask specific depth-probing questions about {a.name} to verify expertise level."),
             })
 
     # A4. Employment gaps (sorted chronologically, month-level precision)
+    # Seniority-aware: senior profiles (12+ years) get higher gap threshold
+    # and lower severity — career transitions are normal at executive level
+    gap_threshold = 12 if is_senior_profile else 6  # months
     experiences = parsed_resume.get("experience") or []
     sorted_exps = _sort_experiences_by_start(experiences) if len(experiences) >= 2 else experiences
     if len(sorted_exps) >= 2:
@@ -2493,10 +2601,15 @@ def _generate_risk_flags(assessments, parsed_resume: dict, scores: dict,
             end_date = sorted_exps[i].get("end_date") or ""
             start_date = sorted_exps[i + 1].get("start_date") or ""
             gap = _estimate_gap_months(end_date, start_date)
-            if gap is not None and gap > 6:
+            if gap is not None and gap > gap_threshold:
+                # Senior profiles: gaps < 18 months are low severity (career transition)
+                if is_senior_profile:
+                    severity = "low" if gap < 18 else "medium"
+                else:
+                    severity = "low" if gap < 12 else "medium"
                 flags.append({
                     "flag_type": "employment_gap",
-                    "severity": "low" if gap < 12 else "medium",
+                    "severity": severity,
                     "title": _sanitize_text(f"Employment gap of approximately {gap} months"),
                     "description": _sanitize_text(
                         f"There appears to be a gap of about {gap} months "
@@ -2513,6 +2626,9 @@ def _generate_risk_flags(assessments, parsed_resume: dict, scores: dict,
     # separate risk flag was redundant and potentially misleading for recruiters.
 
     # A6. Job hopping: many short tenures (< 1 year each)
+    # Senior profiles: raise threshold — short tenures at exec level often reflect
+    # board/advisory roles, interim positions, or M&A transitions
+    short_tenure_threshold = 4 if is_senior_profile else 3
     if len(sorted_exps) >= 3:
         short_tenures = 0
         for exp in sorted_exps:
@@ -2528,7 +2644,7 @@ def _generate_risk_flags(assessments, parsed_resume: dict, scores: dict,
             if 0 <= tenure_months < 12:
                 short_tenures += 1
 
-        if short_tenures >= 3:
+        if short_tenures >= short_tenure_threshold:
             flags.append({
                 "flag_type": "job_hopping",
                 "severity": "medium" if short_tenures < 4 else "high",
@@ -2602,36 +2718,36 @@ def _generate_risk_flags(assessments, parsed_resume: dict, scores: dict,
                     })
 
     # A8. Career trajectory — downward moves without explanation (using sorted experiences)
+    # Uses the proper numeric seniority scale (1-8) from experience_trajectory
+    # instead of crude 3-bucket keyword matching. A "downward move" requires a
+    # drop of >= 1.5 levels (e.g., Manager 5 → Analyst 2.5 = 2.5 drop ✓,
+    # but Manager 5 → Senior 4 = 1.0 drop ✗ — that's a normal lateral move).
     if len(sorted_exps) >= 2:
-        senior_titles = {"senior", "lead", "principal", "staff", "director", "vp", "head", "chief", "manager", "architect"}
-        junior_titles = {"junior", "associate", "intern", "trainee", "entry"}
+        _DOWNWARD_THRESHOLD = 1.5  # minimum level drop to flag
 
-        prev_seniority = None
+        prev_level = None
         for i, exp in enumerate(sorted_exps):
-            title_lower = (exp.get("title", "") or "").lower()
-            if any(s in title_lower for s in senior_titles):
-                curr_seniority = "senior"
-            elif any(s in title_lower for s in junior_titles):
-                curr_seniority = "junior"
-            else:
-                curr_seniority = "mid"
+            title = exp.get("title", "") or ""
+            curr_level = _get_seniority_level(title)
 
-            if prev_seniority == "senior" and curr_seniority in ("junior", "mid") and i > 0:
-                flags.append({
-                    "flag_type": "career_trajectory",
-                    "severity": "low",
-                    "title": "Potential downward career move detected",
-                    "description": _sanitize_text(
-                        f"The candidate moved from '{sorted_exps[i-1].get('title', 'senior role')}' "
-                        f"at {sorted_exps[i-1].get('company', 'previous company')} to "
-                        f"'{exp.get('title', 'less senior role')}' at {exp.get('company', 'current company')}. "
-                        f"This could indicate a career pivot, company change, or other circumstances worth exploring."
-                    ),
-                    "evidence": f"From: {sorted_exps[i-1].get('title', '?')}, To: {exp.get('title', '?')}",
-                    "suggestion": "Ask about the motivation for this transition. Was it a pivot, a startup move, or a different kind of growth?",
-                })
-                break  # Only flag once
-            prev_seniority = curr_seniority
+            if prev_level is not None and i > 0:
+                drop = prev_level - curr_level
+                if drop >= _DOWNWARD_THRESHOLD:
+                    flags.append({
+                        "flag_type": "career_trajectory",
+                        "severity": "low",
+                        "title": "Potential downward career move detected",
+                        "description": _sanitize_text(
+                            f"The candidate moved from '{sorted_exps[i-1].get('title', 'senior role')}' "
+                            f"at {sorted_exps[i-1].get('company', 'previous company')} to "
+                            f"'{exp.get('title', 'less senior role')}' at {exp.get('company', 'current company')}. "
+                            f"This could indicate a career pivot, company change, or other circumstances worth exploring."
+                        ),
+                        "evidence": f"From: {sorted_exps[i-1].get('title', '?')} (level {prev_level}), To: {exp.get('title', '?')} (level {curr_level})",
+                        "suggestion": "Ask about the motivation for this transition. Was it a pivot, a startup move, or a different kind of growth?",
+                    })
+                    break  # Only flag the most significant drop
+            prev_level = curr_level
 
     # ═══════════════════════════════════════════════════════════════════
     # B. Weak-profile warnings — alert the recruiter that this candidate
@@ -2763,19 +2879,145 @@ def _generate_risk_flags(assessments, parsed_resume: dict, scores: dict,
             edu.get("degree") or edu.get("institution")
             for edu in education_data if isinstance(edu, dict)
         ) if education_data else False
-        if not has_any_degree:
+
+        # Check for professional certifications before flagging education gap
+        certifications = parsed_resume.get("certifications") or []
+        has_certifications = bool(certifications)
+
+        if not has_any_degree and not has_certifications:
             flags.append({
                 "flag_type": "education_gap",
                 "severity": "low",
-                "title": "No formal education detected on resume",
+                "title": "No formal education or certifications detected on resume",
                 "description": _sanitize_text(
-                    "No degree or formal education was found on the resume. "
+                    "No degree, formal education, or professional certifications were found on the resume. "
                     "While not always required, many roles expect at least some "
-                    "formal technical training or certification. "
+                    "formal training or certification. "
                     "This may also indicate the resume is incomplete."
                 ),
-                "evidence": "No education entries found in parsed resume",
-                "suggestion": "Ask about the candidate's educational background and any certifications or bootcamps not listed on the resume.",
+                "evidence": "No education entries or certifications found in parsed resume",
+                "suggestion": "Ask about the candidate's educational background and any certifications not listed on the resume.",
+            })
+
+    # ═══════════════════════════════════════════════════════════════════
+    # C. Universal scoring flags (soft skills, trajectory, industry)
+    # ═══════════════════════════════════════════════════════════════════
+
+    role_type_name = role_type.get("type", "skill_heavy")
+
+    # C1. Soft skill gaps (especially important for hybrid/experience-heavy roles)
+    if role_type_name in ("hybrid", "experience_heavy"):
+        try:
+            soft_skill_gaps = get_soft_skill_gaps_for_role(
+                soft_skills, job_title=job_title, role_type=role_type_name
+            )
+        except Exception as e:
+            logger.warning(f"Soft skill gap detection failed: {e}")
+            soft_skill_gaps = []
+        for gap in soft_skill_gaps:
+            flags.append({
+                "flag_type": "soft_skill_gap",
+                "severity": gap.get("severity", "low"),
+                "title": _sanitize_text(gap.get("title", "")),
+                "description": _sanitize_text(gap.get("description", "")),
+                "evidence": f"Soft skill proxy analysis found no evidence of {gap.get('category', 'skill')}",
+                "suggestion": f"Probe {gap.get('category', 'this area')} experience in the interview with behavioral questions.",
+            })
+
+    # C2. Career trajectory concerns
+    progression_type = trajectory.get("progression_type", "")
+    trajectory_score = trajectory.get("trajectory_score", 0)
+
+    if progression_type == "descending" and trajectory_score < 40:
+        flags.append({
+            "flag_type": "trajectory_concern",
+            "severity": "medium",
+            "title": "Downward career trajectory detected",
+            "description": _sanitize_text(
+                f"The candidate shows a descending seniority pattern across their career history. "
+                f"Trajectory score: {trajectory_score}/100. "
+                f"This could indicate career challenges or a deliberate pivot."
+            ),
+            "evidence": trajectory.get("trajectory_summary", ""),
+            "suggestion": "Ask about career transitions and motivations for role changes.",
+        })
+
+    if trajectory.get("gap_count", 0) >= 2 and trajectory.get("gap_months", 0) > 18:
+        flags.append({
+            "flag_type": "career_gaps",
+            "severity": "low",
+            "title": f"Multiple career gaps detected ({trajectory.get('gap_count', 0)} gaps, ~{trajectory.get('gap_months', 0)} months total)",
+            "description": _sanitize_text(
+                f"The candidate has {trajectory.get('gap_count', 0)} career gaps "
+                f"totaling approximately {trajectory.get('gap_months', 0)} months. "
+                f"This may reflect personal circumstances, market conditions, or other factors."
+            ),
+            "evidence": trajectory.get("trajectory_summary", ""),
+            "suggestion": "Ask about the gaps in a supportive way to understand context.",
+        })
+
+    # C3. Industry mismatch (for experience-heavy roles where industry matters)
+    if role_type_name == "experience_heavy":
+        industry_match = trajectory.get("industry_match", 0.5)
+        if industry_match < 0.2 and trajectory.get("total_years", 0) > 3:
+            flags.append({
+                "flag_type": "industry_mismatch",
+                "severity": "medium",
+                "title": "Low industry alignment with target role",
+                "description": _sanitize_text(
+                    f"The candidate's career history shows minimal overlap with the target role's industry. "
+                    f"Industry match score: {round(industry_match * 100)}%. "
+                    f"For experience-heavy roles, industry knowledge is often important."
+                ),
+                "evidence": trajectory.get("trajectory_summary", ""),
+                "suggestion": "Assess transferable domain knowledge and willingness to learn the new industry.",
+            })
+
+    # ═══════════════════════════════════════════════════════════════════
+    # D. Domain-fit flags (industry-specific risk assessment)
+    # ═══════════════════════════════════════════════════════════════════
+
+    domain_match = domain_fit.get("domain_match", "domain_agnostic")
+    jd_domain = domain_fit.get("jd_domain")
+    domain_risk = domain_fit.get("domain_risk_summary", "")
+    domain_gaps = domain_fit.get("domain_gaps", [])
+
+    if jd_domain and domain_match in ("adjacent", "out_of_domain"):
+        domain_label = jd_domain.replace("_", " ").title()
+        severity = "high" if domain_match == "out_of_domain" else "medium"
+
+        flags.append({
+            "flag_type": "domain_fit",
+            "severity": severity,
+            "title": _sanitize_text(
+                f"{'No' if domain_match == 'out_of_domain' else 'Limited'} "
+                f"{domain_label} domain experience"
+            ),
+            "description": _sanitize_text(domain_risk),
+            "evidence": _sanitize_text(
+                f"JD domain: {domain_label}. "
+                f"Candidate domains: {', '.join(d['domain'].replace('_', ' ').title() for d in domain_fit.get('candidate_domains', [])[:3]) or 'Not identified'}."
+            ),
+            "suggestion": _sanitize_text(
+                f"Validate {domain_label}-specific experience in the interview. "
+                + (f"Key domain gaps: {', '.join(domain_gaps[:4])}." if domain_gaps else "")
+            ),
+        })
+
+    # D2. Domain-specific skill gaps (when JD has domain-critical skills the candidate lacks)
+    if domain_gaps and jd_domain:
+        for gap_skill in domain_gaps[:3]:  # Cap at 3 domain-specific gaps
+            flags.append({
+                "flag_type": "domain_skill_gap",
+                "severity": "medium",
+                "title": _sanitize_text(f"No evidence of {gap_skill}"),
+                "description": _sanitize_text(
+                    f"The JD specifically requires {gap_skill}, which is a domain-critical "
+                    f"skill for {jd_domain.replace('_', ' ')} roles. No evidence was found "
+                    f"on the candidate's resume."
+                ),
+                "evidence": f"Domain-critical skill for {jd_domain.replace('_', ' ')} roles",
+                "suggestion": f"Ask specifically about {gap_skill} experience and willingness to develop.",
             })
 
     return flags
@@ -2793,6 +3035,12 @@ def _extract_month(date_str: str) -> int:
     """Extract month number from a date string. Returns 6 (mid-year) if unknown."""
     if not date_str:
         return 6
+    # Try "YYYY-MM" or "YYYY/MM" (ISO format — common from resume parsers)
+    iso_m = re.search(r'(?:20|19)\d{2}\s*[/\-]\s*(\d{1,2})(?:\b|$)', date_str)
+    if iso_m:
+        month = int(iso_m.group(1))
+        if 1 <= month <= 12:
+            return month
     # Try "MM/YYYY" or "MM-YYYY" format
     m = re.search(r'(\d{1,2})\s*[/\-]\s*\d{4}', date_str)
     if m:
@@ -3031,7 +3279,7 @@ def compute_adverse_impact_metrics(analysis_results: list[dict]) -> dict:
 def _generate_interview_questions(
     assessments, scores: dict, required_skills: list, risk_flags: list,
     resume_parsed: dict = None, candidate_name: str = "the candidate",
-    job_title: str = "this role",
+    job_title: str = "this role", role_type: str = "skill_heavy",
 ) -> list:
     """
     Generate targeted, dynamic interview questions based on analysis results.
@@ -3045,15 +3293,27 @@ def _generate_interview_questions(
     questions = []
     priority_counter = 1
 
+    # ── Helper: truncate text at word boundary ──────────────────────────
+    def _truncate(text: str, max_len: int = 120) -> str:
+        """Truncate text at a word boundary, avoiding mid-word cuts."""
+        if len(text) <= max_len:
+            return text
+        truncated = text[:max_len].rsplit(" ", 1)[0]
+        return truncated if truncated else text[:max_len]
+
     # ── Helper: extract concrete evidence from an assessment ──────────
     def _get_evidence_details(assessment) -> dict:
         """Pull specific projects, tools, and context from evidence."""
         projects = []
         source_snippets = []
         for ev in (assessment.evidence or []):
+            # Skip generic skills-list evidence — not useful for interview questions
+            ev_type = getattr(ev, "evidence_type", "") or ""
+            if ev_type == "skills_list":
+                continue
             desc = (ev.description or "").strip()
             src = (ev.source_text or "").strip()
-            if desc and len(desc) > 10:
+            if desc and len(desc) > 10 and desc.lower() not in ("listed in skills section",):
                 projects.append(desc)
             if src and len(src) > 10:
                 source_snippets.append(src[:150])
@@ -3083,7 +3343,7 @@ def _generate_interview_questions(
             if ev["projects"]:
                 project_ref = ev["projects"][0]
                 question = (
-                    f"Your resume mentions {a.name} in the context of: \"{project_ref[:100]}\" — "
+                    f"Your resume mentions {a.name} in the context of: \"{_truncate(project_ref)}\" — "
                     f"can you walk me through the architecture decisions you made there? "
                     f"What alternatives did you evaluate and why did you choose this approach?"
                 )
@@ -3096,8 +3356,8 @@ def _generate_interview_questions(
             else:
                 question = (
                     f"Your resume suggests advanced {a.name} experience. "
-                    f"Tell me about a time you had to debug a particularly tricky issue or design something from scratch "
-                    f"using {a.name}. What made it challenging?"
+                    f"Tell me about a time you had to solve a particularly complex problem or lead an initiative "
+                    f"involving {a.name}. What made it challenging?"
                 )
 
             questions.append({
@@ -3166,7 +3426,7 @@ def _generate_interview_questions(
                     f"{skill_name} is a key requirement for this {job_title} role "
                     f"(we need {depth_label}-level proficiency). "
                     f"It wasn't found on your resume — have you worked with it outside of what's listed, "
-                    f"or with closely related technologies that would help you pick it up?"
+                    f"or with closely related skills that would help you ramp up?"
                 )
 
             questions.append({
@@ -3194,12 +3454,49 @@ def _generate_interview_questions(
             )
             ev = _get_evidence_details(assessment_obj) if assessment_obj else {"projects": [], "snippets": []}
 
-            if ev["projects"]:
-                project_ref = ev["projects"][0][:80]
+            # Use LLM reasoning when available (skill-specific), fall back to evidence
+            reasoning_short = _truncate(reasoning, 100) if reasoning else ""
+
+            # Varied question templates for experience_heavy roles to avoid monotony
+            _exp_heavy_gap_templates = [
+                (
+                    f"Your background shows some exposure to {skill_name}, but this "
+                    f"{job_title} role requires deeper expertise. "
+                    f"Can you walk us through how you've applied {skill_name} at a strategic level "
+                    f"and what outcomes you drove?"
+                ),
+                (
+                    f"For {skill_name}, the role expects advanced-level proficiency. "
+                    f"Tell us about a time when {skill_name} was critical to a business outcome you were responsible for. "
+                    f"What was the scope and what did you achieve?"
+                ),
+                (
+                    f"This role requires strong {skill_name} capabilities. "
+                    f"How has {skill_name} featured in your most senior responsibilities, "
+                    f"and where would you say your depth is strongest?"
+                ),
+                (
+                    f"We'd like to understand your {skill_name} depth better. "
+                    f"Can you describe a situation where you had to make a significant decision "
+                    f"involving {skill_name}, and what the impact was?"
+                ),
+                (
+                    f"The {job_title} role needs someone who can own {skill_name} end-to-end. "
+                    f"What's the most complex {skill_name} challenge you've tackled, "
+                    f"and how did you approach it?"
+                ),
+            ]
+
+            if role_type == "experience_heavy":
+                # Use gap_question_counter (based on priority_counter) to rotate templates
+                template_idx = (priority_counter - 1) % len(_exp_heavy_gap_templates)
+                question = _exp_heavy_gap_templates[template_idx]
+            elif ev["projects"]:
+                project_ref = _truncate(ev["projects"][0])
                 question = (
                     f"For {skill_name}, we found evidence like \"{project_ref}\" — "
                     f"but the role needs deeper expertise (depth {min_depth} vs your current {actual_depth}). "
-                    f"Can you describe a project where you were the primary decision-maker for {skill_name} implementation?"
+                    f"Can you walk us through a situation where you owned the end-to-end approach for {skill_name}?"
                 )
             else:
                 actual_label = _depth_label(actual_depth)
@@ -3207,8 +3504,8 @@ def _generate_interview_questions(
                 question = (
                     f"Your {skill_name} experience appears to be at a {actual_label} level, "
                     f"but this role needs {needed_label}. "
-                    f"What's the most complex thing you've built or architected with {skill_name}? "
-                    f"Are there areas of it you haven't explored yet?"
+                    f"What's the most complex or high-stakes situation where you applied {skill_name}? "
+                    f"Are there areas of it you haven't had the chance to work on yet?"
                 )
 
             questions.append({
@@ -3244,18 +3541,33 @@ def _generate_interview_questions(
             ev = _get_evidence_details(assessment_obj) if assessment_obj else {"projects": [], "snippets": []}
 
             if ev["projects"]:
-                question = (
-                    f"Your resume lists {skill} and mentions \"{ev['projects'][0][:80]}\" — "
-                    f"but the evidence seems lighter than expected for the depth level claimed. "
-                    f"Can you take me through exactly what you built, what tech decisions were yours, "
-                    f"and what you'd do differently today?"
-                )
+                if role_type == "experience_heavy":
+                    question = (
+                        f"Your resume mentions {skill} in the context of \"{ev['projects'][0][:80]}\" — "
+                        f"but the evidence is lighter than expected for the depth claimed. "
+                        f"Can you walk me through your specific contribution, the scope of your ownership, "
+                        f"and the outcomes you delivered?"
+                    )
+                else:
+                    question = (
+                        f"Your resume lists {skill} and mentions \"{ev['projects'][0][:80]}\" — "
+                        f"but the evidence seems lighter than expected for the depth level claimed. "
+                        f"Can you take me through exactly what you built, what decisions were yours, "
+                        f"and what you'd do differently today?"
+                    )
             else:
-                question = (
-                    f"You've listed {skill} on your resume, but we couldn't find detailed project evidence. "
-                    f"Can you describe a specific production system you built with {skill}, "
-                    f"including the scale, challenges, and your exact role in the implementation?"
-                )
+                if role_type == "experience_heavy":
+                    question = (
+                        f"You've listed {skill} on your resume, but we couldn't find detailed evidence of it in practice. "
+                        f"Can you describe a specific situation where {skill} was central to your work, "
+                        f"including the context, your role, and the outcome?"
+                    )
+                else:
+                    question = (
+                        f"You've listed {skill} on your resume, but we couldn't find detailed project evidence. "
+                        f"Can you describe a specific production system you built with {skill}, "
+                        f"including the scale, challenges, and your exact role in the implementation?"
+                    )
 
             questions.append({
                 "category": "red_flag",
@@ -3267,12 +3579,20 @@ def _generate_interview_questions(
             priority_counter += 1
 
         elif flag_type == "employment_gap":
-            question = (
-                f"There appears to be a gap in your work history. "
-                f"During that period, were you doing anything relevant to your career — "
-                f"freelancing, personal projects, upskilling, or contributing to open source? "
-                f"Any of those can count as valid experience."
-            )
+            if role_type == "experience_heavy":
+                question = (
+                    f"There appears to be a gap in your work history. "
+                    f"During that period, were you doing anything relevant to your career — "
+                    f"consulting, advisory roles, further education, or professional development? "
+                    f"Any of those can count as valid experience."
+                )
+            else:
+                question = (
+                    f"There appears to be a gap in your work history. "
+                    f"During that period, were you doing anything relevant to your career — "
+                    f"freelancing, personal projects, upskilling, or contributing to open source? "
+                    f"Any of those can count as valid experience."
+                )
             questions.append({
                 "category": "behavioral",
                 "question": _sanitize_text(question),
@@ -3287,12 +3607,20 @@ def _generate_interview_questions(
             pass  # Skip — recency is handled by score weighting, not surfaced as a flag
 
         elif flag_type == "seniority_mismatch":
-            question = (
-                f"This is a {job_title} position. "
-                f"Can you give me an example of a time you led a technical initiative end-to-end — "
-                f"from requirements gathering through to production deployment and monitoring? "
-                f"What was your team size and how did you handle technical disagreements?"
-            )
+            if role_type == "experience_heavy":
+                question = (
+                    f"This is a {job_title} position. "
+                    f"Can you give me an example of a time you led a major initiative end-to-end — "
+                    f"from scoping and stakeholder alignment through to delivery and measuring impact? "
+                    f"What was the scale of your team, and how did you navigate competing priorities?"
+                )
+            else:
+                question = (
+                    f"This is a {job_title} position. "
+                    f"Can you give me an example of a time you led an initiative end-to-end — "
+                    f"from requirements gathering through to delivery and monitoring? "
+                    f"What was your team size and how did you handle disagreements?"
+                )
             questions.append({
                 "category": "behavioral",
                 "question": _sanitize_text(question),
@@ -3303,12 +3631,20 @@ def _generate_interview_questions(
 
         elif flag_type in ("weak_overall_profile", "thin_resume", "massive_skill_gap"):
             # For weak profiles, ask about what's NOT on the resume
-            question = (
-                f"Looking at your background, there are some gaps relative to this {job_title} role. "
-                f"Beyond what's on your resume, what other technical experience or projects "
-                f"do you have that might be relevant? Sometimes candidates don't list everything — "
-                f"side projects, bootcamps, or open-source contributions can all be valuable."
-            )
+            if role_type == "experience_heavy":
+                question = (
+                    f"Looking at your background, there are some gaps relative to this {job_title} role. "
+                    f"Beyond what's on your resume, do you have other relevant experience — "
+                    f"consulting engagements, board roles, industry certifications, or projects "
+                    f"that might demonstrate your capabilities in this area?"
+                )
+            else:
+                question = (
+                    f"Looking at your background, there are some gaps relative to this {job_title} role. "
+                    f"Beyond what's on your resume, what other experience or projects "
+                    f"do you have that might be relevant? Sometimes candidates don't list everything — "
+                    f"side projects, certifications, or contributions can all be valuable."
+                )
             questions.append({
                 "category": "gap_exploration",
                 "question": _sanitize_text(question),
@@ -3350,26 +3686,26 @@ def _generate_interview_questions(
                 f"You clearly have strong {a.name} experience — "
                 f"we can see evidence across multiple projects including \"{ev['projects'][0][:60]}\" "
                 f"and \"{ev['projects'][1][:60]}\". "
-                f"Which of these was the most technically challenging, and what would you improve "
+                f"Which of these was the most challenging, and what would you improve "
                 f"if you were to redo it today?"
             )
         elif ev["projects"]:
             question = (
                 f"Your {a.name} work on \"{ev['projects'][0][:80]}\" stood out. "
-                f"What was the scale of this project and what was the hardest technical problem "
-                f"you had to solve? How did your approach evolve over the project?"
+                f"What was the scale of this initiative and what was the biggest challenge "
+                f"you had to navigate? How did your approach evolve over time?"
             )
         elif recent_companies:
             question = (
                 f"Your {a.name} expertise looks solid based on your work at {recent_companies[0]}. "
-                f"Tell me about the most impactful thing you built with {a.name} there — "
+                f"Tell me about the most impactful initiative you led with {a.name} there — "
                 f"what business problem did it solve and how did you measure success?"
             )
         else:
             question = (
                 f"Your {a.name} skills rate very well for this role. "
-                f"What's a project where you pushed {a.name} to its limits or used it in an unconventional way? "
-                f"I want to understand the ceiling of your experience."
+                f"Can you walk me through a situation where you applied {a.name} to drive a significant outcome? "
+                f"I want to understand the depth of your experience."
             )
 
         questions.append({
@@ -3392,7 +3728,7 @@ def _generate_interview_questions(
         question = (
             f"You've worked at {recent_companies[0]}"
             + (f" and {recent_companies[1]}" if len(recent_companies) > 1 else "")
-            + f". What kind of engineering culture brings out your best work? "
+            + f". What kind of team culture brings out your best work? "
             f"How does that compare to what you've experienced so far?"
         )
         questions.append({
@@ -3411,16 +3747,51 @@ def _generate_interview_questions(
 # ═══════════════════════════════════════════════════════════════════════
 
 def _compute_scores(assessments, required_skills: list, preferred_skills: list, parsed_resume: dict = None,
-                     experience_range: dict = None, job_title: str = "") -> dict:
+                     experience_range: dict = None, job_title: str = "",
+                     role_type: dict = None, trajectory: dict = None,
+                     soft_skills: dict = None) -> dict:
     """
     Compute capability scores from job-focused pipeline assessments.
     Includes recency weighting, impact markers, adjacency-boosted skills,
-    and experience range validation.
+    experience range validation, and adaptive scoring based on role type.
+
+    New in universal scoring:
+    - role_type: Adjusts weight multipliers (skill-heavy vs experience-heavy)
+    - trajectory: Career progression score (0-100) from experience_trajectory module
+    - soft_skills: Soft skill proxy detection results
     """
     if parsed_resume is None:
         parsed_resume = {}
     if experience_range is None:
         experience_range = {}
+    if role_type is None:
+        role_type = {"type": "skill_heavy", "confidence": 0.5, "scoring_weights": {}}
+    if trajectory is None:
+        trajectory = {}
+    if soft_skills is None:
+        soft_skills = {}
+
+    # ── Adaptive scoring weights based on role type ───────────────────
+    weight_mults = role_type.get("scoring_weights", {})
+    w_skill_raw = weight_mults.get("skill_match", 1.0)
+    w_depth_raw = weight_mults.get("depth", 1.0)
+    w_experience_raw = weight_mults.get("experience", 1.0)
+    w_education_raw = weight_mults.get("education", 1.0)
+    w_trajectory = weight_mults.get("trajectory", 1.0)
+    w_soft_skill = weight_mults.get("soft_skill_proxy", 1.0)
+
+    # Normalize base-component multipliers so the weighted sum always equals 0.85
+    # (the design target). Without this, experience-heavy roles have a structural
+    # scoring ceiling ~71% vs ~91% for skill-heavy roles — unfairly penalizing
+    # non-tech candidates regardless of actual fit.
+    _BASE_COEFFICIENTS = [0.35, 0.22, 0.18, 0.10]  # skill, depth, exp, edu
+    _raw_mults = [w_skill_raw, w_depth_raw, w_experience_raw, w_education_raw]
+    _weighted_sum = sum(b * m for b, m in zip(_BASE_COEFFICIENTS, _raw_mults))
+    _norm_factor = 0.85 / _weighted_sum if _weighted_sum > 0 else 1.0
+    w_skill = w_skill_raw * _norm_factor
+    w_depth = w_depth_raw * _norm_factor
+    w_experience = w_experience_raw * _norm_factor
+    w_education = w_education_raw * _norm_factor
 
     # Build lookup: normalized skill name → assessment
     skill_map = {}
@@ -3476,7 +3847,7 @@ def _compute_scores(assessments, required_skills: list, preferred_skills: list, 
                 # Partial credit: candidate has the skill but below required depth
                 # depth 2 of required 3 gets 0.67 * weight credit (not zero)
                 partial_ratio = assessment.estimated_depth / max(min_depth, 1)
-                partial_credit = partial_ratio * weight * 0.6  # 60% of proportional credit
+                partial_credit = partial_ratio * weight * 0.75  # 75% of proportional credit
                 weighted_match_sum += partial_credit
                 shortfall = min_depth - assessment.estimated_depth
                 gaps.append(
@@ -3610,24 +3981,35 @@ def _compute_scores(assessments, required_skills: list, preferred_skills: list, 
     education_score = _compute_education_score(assessments, required_skills, parsed_resume)
 
     # Preferred skills bonus
-    preferred_bonus = (preferred_matched / total_preferred) * 0.08 if preferred_skills else 0.0
+    preferred_bonus = (preferred_matched / total_preferred) * 0.05 if preferred_skills else 0.0
 
     # Impact bonus: candidates with quantified achievements get a small boost (0-0.03)
     impact_bonus = min(len(impact_markers) * 0.005, 0.03)
 
-    # Overall score: weighted composite
-    # Weights: skill_match 33%, depth 23%, experience 20%, education 10%, preferred up to 8%,
-    #          impact up to 3%, perfect match 3%, leadership up to 4%
+    # ── Trajectory score ──────────────────────────────────────────────
+    trajectory_score_raw = trajectory.get("trajectory_score", 0) / 100.0  # Normalize to 0-1
+    trajectory_bonus = trajectory_score_raw * 0.05 * w_trajectory  # Up to 5% with weight
+
+    # ── Soft skill proxy score ────────────────────────────────────────
+    soft_skill_score_raw = soft_skills.get("soft_skill_score", 0) / 100.0  # Normalize to 0-1
+    soft_skill_bonus = soft_skill_score_raw * 0.04 * w_soft_skill  # Up to 4% with weight
+
+    # Overall score: weighted composite with adaptive role-type multipliers
+    # Base weights: skill_match 35%, depth 22%, experience 18%, education 10% = 85%
+    #   trajectory up to 5%, soft skills up to 4%, preferred up to 5%,
+    #   impact up to 3%, perfect match 2%, leadership up to 4%
     # Penalty: experience shortfall up to -15%
     overall = (
-        (skill_match * 0.33) +
-        (depth_avg * 0.23) +
-        (experience_score * 0.20) +
-        (education_score * 0.10) +
+        (skill_match * 0.35 * w_skill) +
+        (depth_avg * 0.22 * w_depth) +
+        (experience_score * 0.18 * w_experience) +
+        (education_score * 0.10 * w_education) +
+        (trajectory_bonus) +
+        (soft_skill_bonus) +
         (preferred_bonus) +
         (impact_bonus) +
         (leadership_bonus) +
-        (0.03 if skill_match >= 0.95 else 0.0) -
+        (0.02 if skill_match >= 0.95 else 0.0) -
         experience_penalty
     )
     overall = min(overall, 1.0)
@@ -3659,6 +4041,34 @@ def _compute_scores(assessments, required_skills: list, preferred_skills: list, 
     ]
     analysis_confidence = round(sum(confidence_factors) / len(confidence_factors), 3)
 
+    # ── Confidence interval: score range based on uncertainty ──────────
+    # Width is inversely proportional to analysis confidence
+    # At 0.9 confidence → ±2% range. At 0.3 confidence → ±12% range.
+    interval_half_width = round((1 - analysis_confidence) * 0.15, 3)
+    score_low = round(max(0, overall - interval_half_width), 3)
+    score_high = round(min(1.0, overall + interval_half_width), 3)
+
+    # ── Per-skill uncertainty flags ───────────────────────────────────
+    # Flag skills with high impact on score but low confidence
+    uncertain_skills = []
+    for a in assessments:
+        if a.depth_confidence < 0.5 and a.estimated_depth >= 2:
+            # This skill claims to exist but the LLM isn't confident
+            uncertain_skills.append({
+                "skill": a.name,
+                "depth": a.estimated_depth,
+                "confidence": a.depth_confidence,
+                "flag": "Low confidence assessment — verify in interview",
+            })
+        elif a.depth_confidence < 0.3 and a.estimated_depth == 0:
+            # LLM isn't even confident it's missing
+            uncertain_skills.append({
+                "skill": a.name,
+                "depth": 0,
+                "confidence": a.depth_confidence,
+                "flag": "Uncertain whether skill is present — resume may lack detail",
+            })
+
     # Confidence-based recommendation adjustment
     # If confidence is very low, downgrade strong recommendations
     if analysis_confidence < 0.35 and recommendation in ("strong_yes", "strong_no"):
@@ -3688,6 +4098,16 @@ def _compute_scores(assessments, required_skills: list, preferred_skills: list, 
         score_drivers.append(f"Quantified impact markers bonus (+{round(impact_bonus*100)}%)")
     if leadership_bonus > 0.01:
         score_drivers.append(f"Leadership signals bonus (+{round(leadership_bonus*100)}%)")
+    if trajectory_bonus > 0.02:
+        prog_type = trajectory.get("progression_type", "")
+        score_drivers.append(f"Career trajectory bonus (+{round(trajectory_bonus*100)}%, {prog_type} progression)")
+    if soft_skill_bonus > 0.02:
+        strongest = soft_skills.get("strongest_areas", [])
+        score_drivers.append(f"Soft skill evidence bonus (+{round(soft_skill_bonus*100)}%, strong in {', '.join(strongest[:2])})")
+    # Role type context
+    role_type_name = role_type.get("type", "skill_heavy")
+    if role_type_name != "skill_heavy":
+        score_drivers.append(f"Adaptive scoring applied: {role_type_name} role (weights adjusted)")
 
     return {
         "overall": round(overall, 3),
@@ -3704,17 +4124,40 @@ def _compute_scores(assessments, required_skills: list, preferred_skills: list, 
         "recommendation": recommendation,
         # New: Explainability and confidence fields
         "analysis_confidence": analysis_confidence,
+        "confidence_interval": {"low": score_low, "high": score_high},
+        "uncertain_skills": uncertain_skills,
         "confidence_note": confidence_note,
         "score_drivers": score_drivers,
         "score_weights": {
-            "skill_match": 0.33,
-            "depth": 0.23,
-            "experience": 0.20,
-            "education": 0.10,
+            "skill_match": round(0.35 * w_skill, 3),
+            "depth": round(0.22 * w_depth, 3),
+            "experience": round(0.18 * w_experience, 3),
+            "education": round(0.10 * w_education, 3),
+            "trajectory_bonus": round(trajectory_bonus, 3),
+            "soft_skill_bonus": round(soft_skill_bonus, 3),
             "preferred_bonus": round(preferred_bonus, 3),
             "impact_bonus": round(impact_bonus, 3),
             "leadership_bonus": round(leadership_bonus, 3),
             "experience_penalty": round(-experience_penalty, 3),
+        },
+        # ── New universal scoring fields ───────────────────────────────
+        "role_type": role_type.get("type", "skill_heavy"),
+        "role_type_confidence": role_type.get("confidence", 0.0),
+        "role_type_signals": role_type.get("signals", {}),
+        "trajectory": {
+            "score": trajectory.get("trajectory_score", 0),
+            "progression_type": trajectory.get("progression_type", "unknown"),
+            "growth_rate": trajectory.get("growth_rate", 0.0),
+            "total_years": trajectory.get("total_years", 0.0),
+            "current_seniority": trajectory.get("current_seniority", 0.0),
+            "industry_match": trajectory.get("industry_match", 0.0),
+            "summary": trajectory.get("trajectory_summary", ""),
+        },
+        "soft_skill_proxies": {
+            "score": soft_skills.get("soft_skill_score", 0),
+            "strongest_areas": soft_skills.get("strongest_areas", []),
+            "weakest_areas": soft_skills.get("weakest_areas", []),
+            "evidence_count": len(soft_skills.get("soft_skills", [])),
         },
     }
 
@@ -3832,10 +4275,19 @@ def _detect_leadership_signals(parsed_resume: dict) -> list:
 def _sanitize_text(text: str) -> str:
     """Remove all dashes, emdashes, and endashes from output text.
     VetLayer results must never contain these characters."""
-    return text.replace("—", ", ").replace("–", ", ").replace(" - ", ", ")
+    text = text.replace(" \u2014 ", ", ")    # spaced emdash first
+    text = text.replace("\u2014", ", ")       # bare emdash
+    text = text.replace(" \u2013 ", ", ")     # spaced endash first
+    text = text.replace("\u2013", ", ")        # bare endash
+    text = text.replace(" - ", ", ")
+    # Clean up double-spaces and space-comma artifacts
+    while "  " in text:
+        text = text.replace("  ", " ")
+    text = text.replace(" ,", ",")
+    return text
 
 
-def _generate_summary(candidate, job, assessments, scores) -> str:
+def _generate_summary(candidate, job, assessments, scores, domain_fit: dict = None) -> str:
     """
     Generate a clear, recruiter-friendly summary of the analysis.
     Written in plain language with no dashes or emdashes.
@@ -3886,13 +4338,46 @@ def _generate_summary(candidate, job, assessments, scores) -> str:
     else:
         summary += f"{gap_count} skill gaps were identified that may need further evaluation. "
 
+    # ── Domain-fit context in summary ────────────────────────────────
+    if domain_fit is None:
+        domain_fit = {}
+    domain_match = domain_fit.get("domain_match", "domain_agnostic")
+    jd_domain = domain_fit.get("jd_domain")
+    if jd_domain and domain_match in ("adjacent", "out_of_domain"):
+        domain_label = jd_domain.replace("_", " ")
+        if domain_match == "adjacent":
+            summary += (
+                f"The candidate has transferable experience but lacks direct {domain_label} "
+                f"domain background, which should be validated in the interview. "
+            )
+        else:
+            summary += (
+                f"The candidate has no direct {domain_label} domain experience. "
+                f"Industry-specific knowledge gaps may be significant for this role. "
+            )
+
     rec_map = {
         "strong_yes": "This candidate is a strong match and is recommended to advance to the next stage.",
         "yes": "This candidate is a good fit and is recommended to proceed in the pipeline.",
-        "maybe": "This candidate shows potential but has some gaps. Consider a focused technical screen to verify key areas before advancing.",
+        "maybe": "This candidate shows potential but has some gaps. Consider a focused screen to verify key areas before advancing.",
         "no": "This candidate does not appear to be a strong fit for this role based on the skill requirements.",
         "strong_no": "There is a significant mismatch between this candidate's profile and the role requirements.",
     }
     summary += rec_map.get(scores["recommendation"], "Review pending.")
+
+    # ── Score-narrative consistency check ──────────────────────────────
+    # Ensure the recommendation aligns with the stated scores/gaps
+    overall = scores.get("overall", 0)
+    rec = scores["recommendation"]
+
+    # If overall score is high but recommendation is weak, add context
+    if overall >= 0.70 and rec == "maybe":
+        summary += " Note: the overall score is strong; the recommendation reflects specific gaps that may affect role fit."
+    # If overall score is low but narrative sounds positive, add context
+    elif overall < 0.50 and rec in ("yes", "strong_yes"):
+        summary += " Note: while some strong areas were found, the overall match is moderate."
+    # If there are many strengths but low score, explain why
+    elif len(high_depth) >= 4 and overall < 0.55:
+        summary += " Despite multiple strong skill matches, the overall score reflects depth gaps or experience factors."
 
     return _sanitize_text(summary)

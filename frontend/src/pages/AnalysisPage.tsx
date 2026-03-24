@@ -263,6 +263,47 @@ export default function AnalysisPage() {
             </p>
           </div>
         )}
+
+        {/* Analysis Confidence & Score Drivers */}
+        {(analysis.analysis_confidence != null || analysis.score_drivers?.length) && (
+          <div className="mt-4 pt-4 border-t border-surface-border space-y-3">
+            {analysis.analysis_confidence != null && (
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-text-tertiary">Analysis Confidence:</span>
+                <span className={`text-xs font-medium ${
+                  analysis.analysis_confidence >= 0.7 ? "text-emerald-600" :
+                  analysis.analysis_confidence >= 0.4 ? "text-amber-600" : "text-red-600"
+                }`}>{Math.round(analysis.analysis_confidence * 100)}%</span>
+                {analysis.confidence_interval && (
+                  <span className="text-xs text-text-tertiary">
+                    Score range: {Math.round(analysis.confidence_interval.low * 100)}&ndash;{Math.round(analysis.confidence_interval.high * 100)}
+                  </span>
+                )}
+                {analysis.confidence_note && (
+                  <span className="text-xs text-amber-600 italic">{analysis.confidence_note}</span>
+                )}
+              </div>
+            )}
+            {analysis.score_drivers && analysis.score_drivers.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {analysis.score_drivers.map((driver, i) => (
+                  <span key={i} className="text-xs px-2.5 py-1 bg-surface-secondary rounded-full text-text-secondary">
+                    {driver}
+                  </span>
+                ))}
+              </div>
+            )}
+            {analysis.role_type && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-text-tertiary">Role Classification:</span>
+                <span className="text-xs px-2 py-0.5 bg-surface-secondary rounded-full text-text-secondary font-medium">
+                  {analysis.role_type === "skill_heavy" ? "Skill-Heavy" :
+                   analysis.role_type === "experience_heavy" ? "Experience-Heavy" : "Hybrid"}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Score breakdown row ───────────────────────────────────── */}
@@ -445,6 +486,38 @@ export default function AnalysisPage() {
         )}
       </div>
 
+      {/* ── Uncertain Skills (verify in interview) ─────────────── */}
+      {analysis.uncertain_skills && analysis.uncertain_skills.length > 0 && (
+        <div className="glass-card-solid p-5 mb-5">
+          <div className="flex items-center gap-2 mb-4">
+            <AlertTriangle size={16} className="text-amber-500" />
+            <h2 className="text-sm font-semibold text-text-primary">Uncertain Assessments</h2>
+            <span className="text-2xs text-text-tertiary ml-1">
+              {analysis.uncertain_skills.length} skill{analysis.uncertain_skills.length !== 1 ? "s" : ""} need interview verification
+            </span>
+          </div>
+          <div className="space-y-2">
+            {analysis.uncertain_skills.map((us, i) => (
+              <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-amber-50/40 border border-amber-100">
+                <div className="flex items-center gap-2.5">
+                  <Info size={14} className="text-amber-500 flex-shrink-0" />
+                  <span className="text-sm font-medium text-text-primary">{us.skill}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-text-secondary">
+                    Depth {us.depth}/5
+                  </span>
+                  <span className="text-xs text-amber-600 font-medium">
+                    {Math.round(us.confidence * 100)}% confidence
+                  </span>
+                  <span className="text-2xs text-amber-500 italic">{us.flag}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
         {/* ── Strengths ───────────────────────────────────────── */}
         <div className="glass-card-solid p-5">
@@ -567,7 +640,15 @@ export default function AnalysisPage() {
                 q.category === "red_flag" ? "Red Flag" :
                 q.category === "skill_verification" ? "Strength Check" :
                 q.category === "behavioral" ? "Behavioral" :
-                q.category;
+                q.category === "finance" ? "Finance" :
+                q.category === "compliance" ? "Compliance" :
+                q.category === "operations" ? "Operations" :
+                q.category === "hr" ? "HR" :
+                q.category === "strategy" ? "Strategy" :
+                q.category === "domain_specific" ? "Domain" :
+                q.category === "leadership" ? "Leadership" :
+                q.category === "trajectory" ? "Career Trajectory" :
+                q.category.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
               return (
                 <div
                   key={q.id}

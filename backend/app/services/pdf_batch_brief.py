@@ -65,11 +65,11 @@ STYLE_BODY_LEFT = ParagraphStyle(
 )
 STYLE_STRENGTH = ParagraphStyle(
     "strength", fontName="Helvetica", fontSize=9, leading=14.5,
-    textColor=C_DARK, alignment=TA_JUSTIFY,
+    textColor=C_DARK, alignment=TA_JUSTIFY, wordWrap="CJK",
 )
 STYLE_GAP = ParagraphStyle(
     "gap", fontName="Helvetica", fontSize=9, leading=14.5,
-    textColor=C_MUTED, alignment=TA_JUSTIFY,
+    textColor=C_MUTED, alignment=TA_JUSTIFY, wordWrap="CJK",
 )
 STYLE_CONSIDER = ParagraphStyle(
     "consider", fontName="Helvetica", fontSize=9, leading=14,
@@ -214,7 +214,8 @@ def _draw_overview_page(c, batch_data: dict, candidates: List[dict], state: dict
         y -= ph + 4
 
     # Subtitle
-    subtitle = f"{len(candidates)} CANDIDATES EVALUATED"
+    n_cand = len(candidates)
+    subtitle = f"{n_cand} {'CANDIDATE' if n_cand == 1 else 'CANDIDATES'} EVALUATED"
     c.setFont("Helvetica", 9)
     c.setFillColor(C_MUTED)
     c.drawCentredString(PAGE_W / 2, y, subtitle)
@@ -238,7 +239,7 @@ def _draw_overview_page(c, batch_data: dict, candidates: List[dict], state: dict
     avg_time_str = f"{avg_time_ms / 1000:.1f}s" if avg_time_ms else "N/A"
 
     metrics = [
-        (str(len(candidates)), "CANDIDATES"),
+        (str(len(candidates)), "CANDIDATE" if len(candidates) == 1 else "CANDIDATES"),
         (f"{avg_score:.0f}%", "AVG SCORE"),
         (str(strong_yes_count), "STRONG YES"),
         (avg_time_str, "AVG TIME"),
@@ -289,7 +290,7 @@ def _build_batch_summary(batch_data: dict, candidates: List[dict]) -> str:
 
     successful = [cd for cd in candidates if cd.get("analysis", {}).get("overall_score", 0) > 0]
     if not successful:
-        return f"Batch analysis evaluated {n} candidates against {job}. No successful analyses were produced."
+        return f"Batch analysis evaluated {n} {'candidate' if n == 1 else 'candidates'} against {job}. No successful analyses were produced."
 
     avg = sum(cd["analysis"]["overall_score"] for cd in successful) / len(successful)
     top = successful[0] if successful else None
@@ -305,13 +306,17 @@ def _build_batch_summary(batch_data: dict, candidates: List[dict]) -> str:
         if (cd["analysis"].get("recommendation") or "").lower() in ("yes",)
     )
 
-    parts = [f"This batch analysis evaluated {n} candidates against the {job} position."]
-    parts.append(f"The candidate pool shows an average match score of {avg:.0f}%")
+    parts = [f"This batch analysis evaluated {n} {'candidate' if n == 1 else 'candidates'} against the {job} position."]
+    qualifiers = []
     if strong_count:
-        parts.append(f"with {strong_count} candidate{'s' if strong_count > 1 else ''} receiving a strong recommendation")
+        qualifiers.append(f"{strong_count} candidate{'s' if strong_count > 1 else ''} receiving a strong recommendation")
     if yes_count:
-        parts.append(f"and {yes_count} additional candidate{'s' if yes_count > 1 else ''} flagged for further evaluation")
-    parts[1] = parts[1] + (", " + ", ".join(parts[2:]) + "." if len(parts) > 2 else ".")
+        prefix = "and " if strong_count else ""
+        qualifiers.append(f"{prefix}{yes_count} candidate{'s' if yes_count > 1 else ''} recommended for interview")
+    score_text = f"The candidate pool shows an average match score of {avg:.0f}%"
+    if qualifiers:
+        score_text += ", with " + ", ".join(qualifiers)
+    parts.append(score_text + ".")
     summary = " ".join(parts[:2])
 
     if top:
@@ -542,9 +547,55 @@ def _draw_candidate_page(c, cand: dict, idx: int, total: int, state: dict):
         ("Depth", depth),
         ("Education", edu),
     ]
+    # Add trajectory and soft skill scores if available
+    traj_data = analysis.get("trajectory", {})
+    ss_data = analysis.get("soft_skill_proxies", {})
+    if traj_data.get("score", 0) > 0:
+        breakdowns.append(("Trajectory", traj_data["score"]))
+    if ss_data.get("score", 0) > 0:
+        breakdowns.append(("Soft Skills", ss_data["score"]))
     for label, val in breakdowns:
         y_left = _draw_breakdown_bar(c, label, val, LEFT_X, COL_W, y_left)
-    y_left -= 10
+
+    # Confidence interval
+    confidence = analysis.get("analysis_confidence")
+    ci = analysis.get("confidence_interval", {})
+    if confidence is not None:
+        y_left -= 4
+        conf_pct = f"{confidence * 100:.0f}%"
+        conf_color = C_GREEN if confidence >= 0.7 else C_AMBER if confidence >= 0.4 else C_RED
+        c.setFont("Helvetica", 7)
+        c.setFillColor(C_MUTED)
+        c.drawString(LEFT_X, y_left, "Confidence: ")
+        label_w = c.stringWidth("Confidence: ", "Helvetica", 7)
+        c.setFont("Helvetica-Bold", 7)
+        c.setFillColor(conf_color)
+        c.drawString(LEFT_X + label_w, y_left, conf_pct)
+        if ci.get("low") is not None and ci.get("high") is not None:
+            range_text = f"  (score range {ci['low'] * 100:.0f}\u2013{ci['high'] * 100:.0f})"
+            c.setFont("Helvetica", 7)
+            c.setFillColor(C_MUTED)
+            c.drawString(LEFT_X + label_w + c.stringWidth(conf_pct, "Helvetica-Bold", 7), y_left, range_text)
+        y_left -= 12
+
+    # Role type badge (if not default skill_heavy)
+    role_type = analysis.get("role_type", "skill_heavy")
+    if role_type and role_type != "skill_heavy":
+        role_label = role_type.replace("_", " ").title()
+        c.setFont("Helvetica", 7)
+        c.setFillColor(C_MUTED)
+        c.drawString(LEFT_X, y_left, f"Role Type: {role_label}")
+        y_left -= 12
+
+    # Score drivers
+    score_drivers = analysis.get("score_drivers", [])
+    if score_drivers:
+        drivers_text = "  |  ".join(score_drivers[:4])
+        c.setFont("Helvetica", 6.5)
+        c.setFillColor(C_MUTED)
+        c.drawString(LEFT_X, y_left, drivers_text)
+        y_left -= 12
+    y_left -= 6
 
     # LEFT: Risk Flags
     risk_flags = cand.get("risk_flags", [])
@@ -754,7 +805,7 @@ def _draw_interview_questions_pages(c, candidates: List[dict], state: dict):
 
     c.setFont("Helvetica", 8)
     c.setFillColor(C_MUTED)
-    c.drawCentredString(PAGE_W / 2, y, f"Recommended questions for {len(cands_with_qs)} candidates")
+    c.drawCentredString(PAGE_W / 2, y, f"Recommended questions for {len(cands_with_qs)} {'candidate' if len(cands_with_qs) == 1 else 'candidates'}")
     y -= 14
 
     _draw_sep(c, y)
@@ -856,7 +907,7 @@ def _draw_interview_questions_pages(c, candidates: List[dict], state: dict):
             text_x = MARGIN + 28
             text_w = CONTENT_W - 36
             if category:
-                cat_text = category.upper()
+                cat_text = _format_category(category)
                 cat_w = c.stringWidth(cat_text, "Helvetica-Bold", 6) + 10
                 c.setFillColor(C_ACCENT_BG)
                 c.roundRect(text_x, y + 2, cat_w, 10, 2, fill=1, stroke=0)
@@ -915,11 +966,11 @@ def _draw_skill_matrix(c, candidates: List[dict], y: float) -> float:
         c.drawCentredString(PAGE_W / 2, y, "No skill data available for comparison.")
         return y - 20
 
-    # Pick top 6 skills by frequency
-    sorted_skills = sorted(skill_scores.items(), key=lambda x: len(x[1]), reverse=True)[:6]
+    # Show all skills (up to 15) sorted by frequency
+    sorted_skills = sorted(skill_scores.items(), key=lambda x: len(x[1]), reverse=True)[:15]
 
     # Table dimensions
-    name_col_w = 100
+    name_col_w = 180
     max_cands = min(len(candidates), 6)
     cand_col_w = (CONTENT_W - name_col_w) / max_cands if max_cands else 60
 
@@ -945,7 +996,18 @@ def _draw_skill_matrix(c, candidates: List[dict], y: float) -> float:
     for skill_name, cand_depths in sorted_skills:
         c.setFont("Helvetica-Bold", 8.5)
         c.setFillColor(C_DARK)
-        display_skill = skill_name[:18] + "..." if len(skill_name) > 21 else skill_name
+        # Dynamically size skill name to fit column width
+        display_skill = skill_name
+        font_size = 8.5
+        while font_size >= 6.5:
+            if c.stringWidth(display_skill, "Helvetica-Bold", font_size) <= name_col_w - 8:
+                break
+            font_size -= 0.5
+        else:
+            # Still too long even at 6.5pt — truncate without dots
+            max_chars = int(name_col_w / 4.5)
+            display_skill = skill_name[:max_chars]
+        c.setFont("Helvetica-Bold", font_size)
         c.drawString(MARGIN, y, display_skill)
 
         for i, cd in enumerate(candidates[:max_cands]):
@@ -1151,11 +1213,20 @@ def _sanitize(text: str) -> str:
     """Sanitize text for use in reportlab Paragraph (XML context)."""
     if not text:
         return text
-    text = text.replace("\u2014", ", ")
-    text = text.replace("\u2013", ", ")
+    text = text.replace(" \u2014 ", ", ")   # spaced emdash → comma
+    text = text.replace("\u2014", ", ")      # bare emdash → comma
+    text = text.replace(" \u2013 ", ", ")    # spaced endash → comma
+    text = text.replace("\u2013", ", ")      # bare endash → comma
     text = text.replace(" -- ", ", ")
     text = text.replace("--", ", ")
     text = text.replace(" - ", ", ")
+    # Clean up stray double-spaces from replacements
+    while "  " in text:
+        text = text.replace("  ", " ")
+    # Fix ", ," or " ," artifacts
+    text = text.replace(" ,", ",")
+    # Fix known company name casing
+    text = _fix_company_casing(text)
     # Escape XML special chars for Paragraph
     text = text.replace("&", "&amp;")
     text = text.replace("<", "&lt;")
@@ -1163,15 +1234,60 @@ def _sanitize(text: str) -> str:
     return text
 
 
+_CATEGORY_LABELS = {
+    "depth_probe": "DEPTH PROBE",
+    "gap_exploration": "GAP EXPLORATION",
+    "red_flag": "RED FLAG",
+    "skill_verification": "STRENGTH CHECK",
+    "behavioral": "BEHAVIORAL",
+    "finance": "FINANCE",
+    "compliance": "COMPLIANCE",
+    "operations": "OPERATIONS",
+    "hr": "HR",
+    "strategy": "STRATEGY",
+    "domain_specific": "DOMAIN",
+    "leadership": "LEADERSHIP",
+    "trajectory": "CAREER TRAJECTORY",
+}
+
+
+# Known company names with correct casing (LLM often miscapitalizes these)
+_COMPANY_CASING = {
+    "pwc": "PwC", "kpmg": "KPMG", "ey": "EY", "ibm": "IBM",
+    "aws": "AWS", "gcp": "GCP", "wipro": "Wipro", "tcs": "TCS",
+    "hcl": "HCL", "jpmorgan": "JPMorgan", "hsbc": "HSBC",
+}
+
+
+def _fix_company_casing(text: str) -> str:
+    """Fix known company name casing in text."""
+    for wrong, correct in _COMPANY_CASING.items():
+        # Match case-insensitive word boundaries
+        import re
+        text = re.sub(rf'\b{re.escape(wrong)}\b', correct, text, flags=re.IGNORECASE)
+    return text
+
+
+def _format_category(category: str) -> str:
+    """Convert raw category enum to human-readable label."""
+    return _CATEGORY_LABELS.get(category, category.replace("_", " ").upper())
+
+
 def _clean(text: str) -> str:
     """Clean text for use in canvas drawString (no XML escaping needed)."""
     if not text:
         return text
+    text = text.replace(" \u2014 ", ", ")
     text = text.replace("\u2014", ", ")
+    text = text.replace(" \u2013 ", ", ")
     text = text.replace("\u2013", ", ")
     text = text.replace(" -- ", ", ")
     text = text.replace("--", ", ")
     text = text.replace(" - ", ", ")
+    while "  " in text:
+        text = text.replace("  ", " ")
+    text = text.replace(" ,", ",")
+    text = _fix_company_casing(text)
     return text
 
 

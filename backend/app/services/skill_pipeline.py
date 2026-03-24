@@ -67,17 +67,30 @@ class PipelineTimings:
 # System Prompt — minimal output, maximum speed
 # ═══════════════════════════════════════════════════════════════════════
 
-FAST_ASSESSMENT_PROMPT = """You are VetLayer's Skill Assessment Engine. Expert technical recruiter with 15+ years of experience evaluating software engineers.
+FAST_ASSESSMENT_PROMPT = """You are VetLayer's Skill Assessment Engine. Expert recruiter with 15+ years of experience evaluating candidates across all industries and functions — technology, finance, healthcare, consulting, operations, and more.
 
 Given JOB SKILLS and a CANDIDATE RESUME, rate each skill's depth on this scale:
 
-DEPTH SCALE WITH BEHAVIORAL ANCHORS:
+DEPTH SCALE WITH BEHAVIORAL ANCHORS (UNIVERSAL — applies to ALL skill types):
 0 = NOT FOUND: Skill not mentioned or evidenced anywhere on the resume, not even implicitly.
-1 = AWARENESS: Skill listed in a skills section or mentioned in passing, but no concrete usage described. Example: "Familiar with Docker" with no project using it.
-2 = BEGINNER: Used in coursework, tutorials, personal side projects, or briefly in a professional setting. Example: "Completed a React tutorial", "Used Redis in a hackathon."
-3 = INTERMEDIATE/PROFESSIONAL: Used in production work with real users. Built or maintained features using this skill. 1+ years of regular hands on use. Example: "Built REST APIs with FastAPI serving production traffic", "Developed React components used by 10K+ users."
-4 = ADVANCED: Led architecture decisions, designed systems, optimized performance, or mentored others in this skill. 2+ years of deep professional use. Example: "Architected microservices migration serving 2M users", "Led team adoption of Kubernetes, designed deployment pipelines."
-5 = EXPERT: Industry recognized, published research, created widely adopted tools/libraries, or deep specialist. Conference speaker, open source maintainer, or core contributor. Example: "Created open source library with 5K+ stars", "Published paper on distributed consensus."
+1 = AWARENESS: Skill listed in a skills section or mentioned in passing, but no concrete usage described. Example (tech): "Familiar with Docker" with no project using it. Example (finance): "Knowledge of IFRS" listed under skills with no project context.
+2 = BEGINNER: Used in a limited or supporting capacity. Example (tech): "Used Redis in a hackathon." Example (finance): "Assisted with IFRS reporting as junior analyst." Example (ops): "Participated in process improvement workshops."
+3 = PROFESSIONAL: Applied regularly in a professional setting with real responsibility. 1+ years of hands on use delivering real outcomes. Example (tech): "Built REST APIs with FastAPI serving production traffic." Example (finance): "Managed IFRS 9 reporting across multiple legal entities." Example (HR): "Designed and ran performance management cycles for 500+ employees." Example (ops): "Led process reengineering that reduced cycle time by 30%."
+4 = ADVANCED: Led strategy, owned outcomes, designed frameworks, mentored others, or drove transformation in this skill area. 2+ years of deep professional use. Example (tech): "Architected microservices migration serving 2M users." Example (finance): "Designed IFRS 9 implementation program across 12 legal entities, trained 40+ controllers." Example (consulting): "Led $50M transformation engagement, designed operating model for Fortune 500 client."
+5 = EXPERT: Industry recognized authority. Published thought leadership, shaped industry standards, or built widely adopted frameworks. Example (tech): "Created open source library with 5K+ stars." Example (finance): "Led IFRS adoption for a G-SIB, served on industry working groups." Example (healthcare): "Designed clinical governance framework adopted across hospital network."
+
+CRITICAL — DEPTH CALIBRATION FOR NON-TECH SKILLS:
+Many professional skills (finance, compliance, operations, HR, strategy, etc.) are evidenced differently from technical skills. Do NOT under-rate them because the resume lacks "code-like" specifics. Apply these calibration rules:
+
+1. SENIOR TITLE + SKILL IN SCOPE = minimum depth 3. If someone held a senior role (CFO, VP, Director, Head of, Controller, Partner) where the skill was clearly part of their job scope, rate at LEAST depth 3. A CFO who "managed financial reporting under GAAP and IFRS" has depth 3-4 in Financial Reporting, IFRS, and GAAP — they did this professionally at a senior level.
+
+2. MULTI-ROLE EVIDENCE = depth 3-4. If the candidate applied the skill across multiple roles or companies, that demonstrates sustained professional competence. Rate depth 3 minimum, 4 if they led or transformed.
+
+3. REGULATORY/FRAMEWORK EXPERTISE. Mentioning specific standards by name (IFRS 9, Basel III, HIPAA, SOX, ISO 27001) in a professional context is strong evidence. A finance professional who references "IFRS 9 expected credit loss implementation" is at depth 3-4, not 1-2.
+
+4. PROCESS IMPROVEMENT, RISK MANAGEMENT, COMPLIANCE, PROJECT MANAGEMENT, STRATEGIC PLANNING: These are professional competencies, not soft skills. If the candidate led initiatives, drove outcomes, or owned these functions, rate depth 3-4. "Led process reengineering across 3 business units" is depth 4. "Participated in process improvement" is depth 2.
+
+5. DO NOT conflate "no metrics mentioned" with "no evidence." Finance, compliance, and operations roles often describe scope and responsibility rather than numerical metrics. "Managed treasury operations for a global bank" is strong evidence even without specific dollar amounts.
 
 CRITICAL — IMPLIED SKILL RULES (you MUST follow these):
 When a candidate has professional experience building production applications with a FRAMEWORK, they NECESSARILY have professional level skill in that framework's FOUNDATION technologies. This is not optional, it is logically required.
@@ -103,8 +116,21 @@ Specifically:
 
 Example: A developer who built production React apps professionally CANNOT have HTML at depth 2. React IS HTML+CSS+JS. Rate HTML >=3, CSS >=3, JS >=3, Browser APIs >=2.
 
+CRITICAL — NON-TECH IMPLIED SKILL RULES:
+Just as tech frameworks imply foundation skills, professional roles imply competencies:
+- CFO, Finance Controller, Head of Finance at depth 3+ implies Financial Reporting depth MUST be >=3, Compliance depth MUST be >=3, Budgeting depth MUST be >=3
+- Any senior finance role mentioning "IFRS" or "GAAP" implies those standards at depth 3+ (they owned or managed reporting under these frameworks)
+- Any role with "treasury", "cash management", "liquidity" implies Treasury depth MUST be >=3
+- Any role with "audit", "internal controls", "SOX" implies Audit/Compliance depth MUST be >=3
+- Director/VP of Operations implies Process Improvement depth MUST be >=3, Operations Management depth MUST be >=3
+- Any role with "risk" in title (CRO, Head of Risk, Risk Manager) implies Risk Management depth MUST be >=3
+- Director/VP of HR, CHRO implies Talent Management depth MUST be >=3, Performance Management depth MUST be >=3
+- Any consulting Partner/Director/Manager implies Stakeholder Engagement depth MUST be >=3, Project Management depth MUST be >=3
+
 CRITICAL — UMBRELLA TERM RESOLUTION:
 Candidates often use umbrella terms instead of listing specific skills. You MUST infer constituent skills:
+
+Tech umbrella terms:
 - "web development" or "web developer" → implies HTML, CSS, JavaScript at minimum depth 2+
 - "full-stack development" or "full stack developer" → implies both frontend (HTML, CSS, JS) and backend (server language, SQL, REST API) at depth 2+
 - "frontend development" or "frontend developer" → implies HTML, CSS, JavaScript at depth 2+
@@ -118,9 +144,20 @@ Candidates often use umbrella terms instead of listing specific skills. You MUST
 - "API development" → implies REST API at depth 3+
 - "leveraging AI" or "using AI tools" or "AI integration" → implies AI tools familiarity at depth 2+
 
-Adjust depth based on context (years, project complexity, role seniority). If someone was a "Senior Full Stack Developer for 4 years", their constituent skill depths should be 3 to 4, not just 2.
+Non-tech umbrella terms:
+- "financial controllership" or "financial controller" → implies Financial Reporting >=3, GAAP/IFRS >=3, Compliance >=3
+- "treasury management" → implies Treasury >=3, Cash Management >=3, Risk Management >=2
+- "regulatory reporting" → implies Compliance >=3, Financial Reporting >=3
+- "business transformation" or "reengineering" or "making processes lean" → implies Process Improvement >=3
+- "stakeholder management" or "client management" → implies Stakeholder Engagement >=3
+- "P&L management" or "budgeting and forecasting" → implies Financial Planning >=3, Budgeting >=3
+- "talent development" or "people management" → implies Team Leadership >=3
+- "governance" or "corporate governance" → implies Governance >=3, Compliance >=2
+- "ERP implementation" or "SAP" or "Oracle Financials" → implies ERP >=3
 
-IMPORTANT: Do NOT require the skill to be explicitly listed by name. Look for EVIDENCE in work descriptions, project details, technologies used, and job titles. If the resume shows production React work, that IS evidence of HTML/CSS/JS/Browser APIs proficiency. If the resume mentions "caching layer", "localStorage", "real time notifications", "WebSocket", that IS Browser APIs evidence.
+Adjust depth based on context (years, project complexity, role seniority). If someone was a "Senior Full Stack Developer for 4 years", their constituent skill depths should be 3 to 4, not just 2. Similarly, if someone was a "CFO for 6 years", their Financial Reporting and Compliance depths should be 4, not 3.
+
+IMPORTANT: Do NOT require the skill to be explicitly listed by name. Look for EVIDENCE in work descriptions, project details, technologies used, and job titles. If the resume shows production React work, that IS evidence of HTML/CSS/JS/Browser APIs proficiency. If the resume mentions "caching layer", "localStorage", "real time notifications", "WebSocket", that IS Browser APIs evidence. Similarly, if the resume shows "managed financial close process" that IS evidence of Financial Reporting proficiency. If the resume mentions "cost savings", "lean", "process reengineering", that IS evidence of Process Improvement.
 
 CRITICAL — NON-TECHNICAL AND GENERAL TOOL SKILLS:
 Some job listings include non-technical skills like "Microsoft Office", "Google Workspace", "AI tools", or "collaboration tools". These ARE valid skills to assess (unlike soft skills). Rate them based on evidence:
@@ -139,7 +176,7 @@ If the JOB TITLE is provided below, connect your reasoning to what matters for t
 Return compact JSON:
 {"a":[{"n":"React","d":3,"c":0.8,"r":"Built 1600 line production React app at MOVZZ serving 10K users.","y":2024,"cat":"framework"},{"n":"SASS","d":0,"c":0,"r":"Not found on resume.","y":null,"cat":"unknown"}]}
 
-Fields: n=name(exact as requested), d=depth(0 to 5), c=confidence(0 to 1), r=reasoning(1 concise sentence with SPECIFIC evidence from resume, plain language, NO dashes or special punctuation), y=last_used_year(integer or null), cat=category(one of: language, framework, library, database, cloud, devops, testing, tool, concept, data, mobile, ai, general_tool, methodology, security, enterprise, networking, unknown)
+Fields: n=name(exact as requested), d=depth(0 to 5), c=confidence(0 to 1), r=reasoning(1 concise sentence with SPECIFIC evidence from resume, plain language, NO dashes or special punctuation), y=last_used_year(integer or null), cat=category(one of: language, framework, library, database, cloud, devops, testing, tool, concept, data, mobile, ai, general_tool, methodology, security, enterprise, networking, finance, compliance, operations, hr, strategy, domain_specific, unknown)
 EVERY requested skill MUST appear in the output. Not found=d:0,c:0. Listed only=d:1,c:0.2.
 
 IMPORTANT: In your reasoning text, never use dashes, emdashes, or endashes. Use commas or periods instead."""
@@ -288,7 +325,6 @@ _EVIDENCE_ALIASES = {
                  "api endpoints", "api integration"],
     "git": ["git", "github", "gitlab", "version control", "bitbucket"],
     "webpack": ["webpack", "vite", "rollup", "esbuild", "bundler", "parcel"],
-    "agile": ["agile", "scrum", "kanban", "sprint"],
     "jira": ["jira"],
     "figma": ["figma"],
     "postman": ["postman"],
@@ -429,7 +465,8 @@ _EVIDENCE_ALIASES = {
     "kubeflow": ["kubeflow", "kube flow", "kubeflow pipeline"],
     "feature store": ["feature store", "feast", "tecton"],
     # ── Methodology ──────────────────────────────────────────────────
-    "agile": ["agile", "agile methodology", "agile development", "agile scrum"],
+    "agile": ["agile", "agile methodology", "agile development", "agile scrum",
+              "scrum", "kanban", "sprint"],
     "scrum": ["scrum", "scrum master", "sprint planning", "sprint review",
               "daily standup", "sprint retrospective", "scrum methodology"],
     "kanban": ["kanban", "kanban board", "wip limit"],
@@ -452,6 +489,135 @@ _EVIDENCE_ALIASES = {
     "xml": ["xml", "xslt", "xpath", "xsd"],
     "shell scripting": ["bash scripting", "shell script", "shell scripting",
                          "zsh", "powershell", "batch script"],
+    # ══════════════════════════════════════════════════════════════════
+    # NON-TECH DOMAIN EVIDENCE ALIASES
+    # ══════════════════════════════════════════════════════════════════
+    # ── Finance & Accounting ──────────────────────────────────────────
+    "ifrs": ["ifrs", "ifrs 9", "ifrs 15", "ifrs 16", "ifrs 17",
+             "ias", "international financial reporting standards",
+             "ias/ifrs", "ind as"],
+    "gaap": ["gaap", "us gaap", "usgaap", "ind as",
+             "generally accepted accounting principles"],
+    "accounting standards": ["accounting standards", "gaap", "ifrs", "us gaap",
+                             "ind as", "ias", "financial standards"],
+    "financial reporting": ["financial reporting", "financial reports",
+                            "quarterly reports", "annual reports", "board reporting",
+                            "monthly close", "financial close", "monthly reporting",
+                            "management reporting", "statutory reporting",
+                            "consolidated accounts", "consolidation"],
+    "financial controllership": ["financial controllership", "financial controller",
+                                 "controllership", "finance controller", "controller",
+                                 "internal controls", "financial controls",
+                                 "audit and controllership"],
+    "financial analysis": ["financial analysis", "financial modeling",
+                           "financial model", "valuation", "dcf",
+                           "scenario analysis", "sensitivity analysis",
+                           "financial analytics", "variance analysis"],
+    "financial planning": ["financial planning", "fp&a", "fpa",
+                           "budgeting", "forecasting", "budget",
+                           "financial forecast", "annual plan",
+                           "financial strategy", "long-range plan"],
+    "risk management": ["risk management", "risk assessment", "risk mitigation",
+                        "risk analysis", "enterprise risk", "operational risk",
+                        "credit risk", "market risk", "risk framework",
+                        "risk register", "risk appetite"],
+    "compliance": ["compliance", "regulatory compliance", "sox", "sarbanes-oxley",
+                   "regulatory requirements", "regulatory environment",
+                   "audit compliance", "statutory compliance", "legal compliance"],
+    "process improvement": ["process improvement", "process optimization",
+                            "process reengineering", "lean", "six sigma",
+                            "kaizen", "process transition", "making processes lean",
+                            "continuous improvement", "operational efficiency",
+                            "process automation", "streamlining", "cost savings",
+                            "efficiency improvement"],
+    "strategic planning": ["strategic planning", "business strategy",
+                           "corporate strategy", "strategic roadmap",
+                           "strategic initiatives", "strategy development",
+                           "long-term strategy", "growth strategy"],
+    "data analysis": ["data analysis", "data analytics", "data-driven",
+                      "analytics", "business analytics", "reporting analytics",
+                      "data insights", "dashboard", "tableau", "power bi",
+                      "excel analytics", "data visualization"],
+    "project management": ["project management", "program management",
+                           "project delivery", "project planning",
+                           "project execution", "pmp", "prince2",
+                           "project lifecycle", "project governance"],
+    "audit": ["audit", "internal audit", "external audit", "statutory audit",
+              "audit committee", "audit findings", "audit trail", "sox audit"],
+    "treasury": ["treasury", "cash management", "cash flow management",
+                 "working capital", "liquidity management", "fund management"],
+    "taxation": ["taxation", "tax planning", "tax compliance", "direct tax",
+                 "indirect tax", "gst", "transfer pricing", "tax optimization"],
+    "erp": ["erp", "sap", "oracle financials", "ms dynamics",
+            "microsoft dynamics", "netsuite", "workday", "sap fico",
+            "sap hana", "enterprise resource planning"],
+    # ── HR & Talent ───────────────────────────────────────────────────
+    "talent acquisition": ["talent acquisition", "recruiting", "recruitment",
+                           "sourcing", "hiring", "candidate pipeline",
+                           "talent pipeline", "ats", "applicant tracking"],
+    "employee engagement": ["employee engagement", "employee satisfaction",
+                            "employee experience", "engagement survey",
+                            "retention", "culture building", "eNPS"],
+    "performance management": ["performance management", "performance review",
+                               "performance appraisal", "goal setting", "okr",
+                               "kpi tracking", "talent review", "pip"],
+    "compensation and benefits": ["compensation", "benefits", "total rewards",
+                                  "payroll", "salary benchmarking", "incentive",
+                                  "bonus structure", "equity compensation"],
+    "learning and development": ["learning and development", "l&d", "training",
+                                 "capability development", "upskilling",
+                                 "leadership development", "learning programs"],
+    # ── Marketing & Sales ─────────────────────────────────────────────
+    "digital marketing": ["digital marketing", "online marketing",
+                          "social media marketing", "seo", "sem",
+                          "google ads", "facebook ads", "ppc",
+                          "content marketing", "email marketing"],
+    "brand management": ["brand management", "branding", "brand strategy",
+                         "brand positioning", "brand identity", "brand equity"],
+    "sales management": ["sales management", "sales leadership",
+                         "revenue generation", "quota attainment",
+                         "pipeline management", "sales operations",
+                         "channel sales", "enterprise sales"],
+    "business development": ["business development", "biz dev",
+                             "new business", "client acquisition",
+                             "partnership development", "strategic partnerships"],
+    "account management": ["account management", "client management",
+                           "key account", "client relationship",
+                           "customer success", "client engagement",
+                           "client retention", "relationship management"],
+    "crm": ["crm", "salesforce", "hubspot", "microsoft dynamics crm",
+            "customer relationship management", "zoho crm"],
+    # ── Operations & Supply Chain ─────────────────────────────────────
+    "supply chain management": ["supply chain", "scm", "logistics",
+                                "procurement", "sourcing", "vendor management",
+                                "supply chain optimization", "inventory management"],
+    "operations management": ["operations management", "operational excellence",
+                              "operations leadership", "operational efficiency",
+                              "capacity planning", "resource optimization"],
+    # ── Client Experience & Stakeholder ───────────────────────────────
+    "client experience strategy": ["client experience", "customer experience",
+                                   "cx strategy", "client engagement strategy",
+                                   "customer journey", "experience design",
+                                   "client visit", "executive briefing"],
+    "stakeholder engagement": ["stakeholder engagement", "stakeholder management",
+                               "stakeholder relationship", "cross-functional",
+                               "executive engagement", "c-suite engagement",
+                               "board engagement"],
+    "experience design": ["experience design", "service design",
+                          "journey mapping", "customer journey design",
+                          "experience strategy", "ux strategy"],
+    "team leadership": ["team leadership", "people management",
+                        "team management", "led team", "managed team",
+                        "direct reports", "team building",
+                        "cross-functional team", "leadership"],
+    "operational excellence": ["operational excellence", "operations excellence",
+                               "process excellence", "quality management",
+                               "continuous improvement", "lean operations",
+                               "tqm", "total quality management"],
+    "governance": ["governance", "corporate governance", "it governance",
+                   "data governance", "governance framework",
+                   "governance model", "regulatory governance",
+                   "delivery framework", "compliance framework"],
 }
 
 
@@ -548,11 +714,10 @@ _CONTEXTUAL_EVIDENCE = {
         ("authentication", 0.6), ("authorization", 0.6), ("oauth", 0.7),
         ("jwt", 0.6), ("encryption", 0.6), ("ssl", 0.5), ("tls", 0.5),
         ("penetration testing", 0.8), ("vulnerability", 0.6),
-    ],
-    "agile": [
-        ("sprint planning", 0.8), ("daily standup", 0.7), ("retrospective", 0.7),
-        ("user stories", 0.7), ("backlog grooming", 0.7), ("product backlog", 0.6),
-        ("story points", 0.7),
+        ("security audit", 0.8), ("vulnerability assessment", 0.8),
+        ("security review", 0.8), ("threat modeling", 0.8),
+        ("security architecture", 0.8), ("security compliance", 0.7),
+        ("data protection", 0.7), ("encryption implementation", 0.8),
     ],
     # ── Enterprise / CRM ─────────────────────────────────────────────
     "salesforce": [
@@ -608,11 +773,6 @@ _CONTEXTUAL_EVIDENCE = {
         ("transfer learning", 0.8), ("domain adaptation", 0.8),
     ],
     # ── Cybersecurity ────────────────────────────────────────────────
-    "security": [
-        ("security audit", 0.8), ("vulnerability assessment", 0.8), ("security review", 0.8),
-        ("threat modeling", 0.8), ("security architecture", 0.8), ("security compliance", 0.7),
-        ("data protection", 0.7), ("encryption implementation", 0.8),
-    ],
     "penetration testing": [
         ("pen test", 0.9), ("ethical hacking", 0.8), ("security testing", 0.8),
         ("vulnerability exploitation", 0.8), ("red team", 0.8),
@@ -621,6 +781,9 @@ _CONTEXTUAL_EVIDENCE = {
     "agile": [
         ("agile environment", 0.7), ("agile team", 0.7), ("agile development", 0.8),
         ("iterative development", 0.7), ("sprint based", 0.8),
+        ("sprint planning", 0.8), ("daily standup", 0.7), ("retrospective", 0.7),
+        ("user stories", 0.7), ("backlog grooming", 0.7), ("product backlog", 0.6),
+        ("story points", 0.7),
     ],
     "scrum": [
         ("scrum master", 0.9), ("sprint planning", 0.9), ("sprint review", 0.8),
@@ -640,16 +803,112 @@ _CONTEXTUAL_EVIDENCE = {
         ("cisco switch", 0.9), ("cisco router", 0.9), ("cisco network", 0.8),
         ("network switch configuration", 0.8),
     ],
+    # ══════════════════════════════════════════════════════════════════
+    # NON-TECH CONTEXTUAL EVIDENCE
+    # ══════════════════════════════════════════════════════════════════
+    "financial reporting": [
+        ("board reporting", 0.8), ("monthly close", 0.9), ("quarterly close", 0.9),
+        ("annual close", 0.9), ("financial close", 0.9), ("statutory reporting", 0.8),
+        ("management accounts", 0.8), ("consolidated accounts", 0.9),
+        ("p&l management", 0.8), ("balance sheet", 0.8), ("profit and loss", 0.8),
+    ],
+    "financial controllership": [
+        ("internal controls", 0.9), ("financial controls", 0.9),
+        ("sox compliance", 0.8), ("audit committee", 0.8),
+        ("controllership function", 0.9), ("finance function", 0.7),
+        ("integrity of financial reports", 0.8),
+    ],
+    "ifrs": [
+        ("international accounting standards", 0.9), ("ind as", 0.9),
+        ("ifrs transition", 0.9), ("ifrs implementation", 0.9),
+        ("ifrs convergence", 0.9), ("gaap to ifrs", 0.8),
+    ],
+    "financial analysis": [
+        ("deal structuring", 0.8), ("scenario-based pricing", 0.8),
+        ("financial due diligence", 0.8), ("business case", 0.7),
+        ("cost benefit analysis", 0.8), ("roi analysis", 0.8),
+        ("margin analysis", 0.8),
+    ],
+    "financial planning": [
+        ("annual budget", 0.9), ("budget management", 0.8),
+        ("rolling forecast", 0.9), ("long range plan", 0.8),
+        ("financial projection", 0.8), ("capital planning", 0.8),
+    ],
+    "risk management": [
+        ("risk assessment", 0.9), ("risk mitigation", 0.9),
+        ("risk framework", 0.9), ("enterprise risk", 0.8),
+        ("risk appetite", 0.8), ("risk register", 0.8),
+        ("hedging", 0.7), ("risk governance", 0.8),
+    ],
+    "process improvement": [
+        ("process reengineering", 0.9), ("making processes lean", 0.9),
+        ("cost savings", 0.8), ("efficiency improvement", 0.9),
+        ("process transition", 0.9), ("process automation", 0.8),
+        ("operational efficiency", 0.8), ("streamlined operations", 0.8),
+        ("reduced costs", 0.8), ("optimized processes", 0.8),
+        ("material cost savings", 0.9),
+    ],
+    "compliance": [
+        ("regulatory requirements", 0.8), ("statutory compliance", 0.9),
+        ("regulatory environment", 0.8), ("governance and compliance", 0.8),
+        ("compliance framework", 0.9), ("regulatory reporting", 0.8),
+    ],
+    "strategic planning": [
+        ("business strategy", 0.8), ("corporate strategy", 0.8),
+        ("growth strategy", 0.8), ("strategic roadmap", 0.9),
+        ("strategic vision", 0.8), ("strategic direction", 0.8),
+        ("business growth", 0.7),
+    ],
+    "data analysis": [
+        ("data-driven decision", 0.8), ("analytics dashboard", 0.8),
+        ("business intelligence", 0.8), ("reporting and analytics", 0.8),
+        ("mis reporting", 0.8), ("kpi tracking", 0.8),
+    ],
+    "project management": [
+        ("project delivery", 0.8), ("project planning", 0.8),
+        ("cross-functional project", 0.8), ("project lifecycle", 0.8),
+        ("milestone tracking", 0.8), ("delivery timeline", 0.7),
+    ],
+    "stakeholder engagement": [
+        ("stakeholder relationship", 0.9), ("client relationship", 0.8),
+        ("executive engagement", 0.9), ("cross-functional collaboration", 0.8),
+        ("board engagement", 0.8), ("senior leadership", 0.7),
+    ],
+    "team leadership": [
+        ("led a team", 0.9), ("managed a team", 0.9),
+        ("direct reports", 0.9), ("built a team", 0.9),
+        ("team of", 0.8), ("people management", 0.8),
+        ("coaching and mentoring", 0.8), ("performance review", 0.7),
+    ],
+    "account management": [
+        ("client portfolio", 0.8), ("key accounts", 0.9),
+        ("client retention", 0.8), ("account growth", 0.8),
+        ("relationship management", 0.8), ("client engagement", 0.8),
+    ],
+    "business development": [
+        ("new business", 0.8), ("revenue growth", 0.8),
+        ("client acquisition", 0.9), ("partnership development", 0.8),
+        ("market expansion", 0.8), ("sales pipeline", 0.7),
+    ],
 }
 
 
 def _get_skill_variants(skill_name: str) -> List[str]:
-    """Get all text variants of a skill name for searching."""
+    """Get all text variants of a skill name for searching.
+    Checks built-in taxonomy first, then dynamic taxonomy aliases."""
     name_lower = skill_name.lower().strip()
     # Check alias map
     for canonical, variants in _EVIDENCE_ALIASES.items():
         if name_lower in variants or name_lower == canonical:
             return variants
+    # Check dynamic taxonomy aliases
+    try:
+        from app.services.dynamic_taxonomy import get_dynamic_evidence_aliases
+        dynamic_aliases = get_dynamic_evidence_aliases(skill_name)
+        if dynamic_aliases:
+            return list(set([name_lower] + dynamic_aliases))
+    except ImportError:
+        pass
     # Fallback: just the name itself and common suffixes
     variants = [name_lower]
     if "." in name_lower:
@@ -709,7 +968,7 @@ def extract_evidence(skill_name: str, parsed_resume: dict) -> List[Evidence]:
             snippet = _extract_snippet(desc, pattern)
             evidence_list.append(Evidence(
                 evidence_type="experience",
-                description=f"Used in role: {title} @ {company}",
+                description=f"{title} at {company}" if title else f"Role at {company}",
                 source_text=snippet,
                 strength=min(0.95, 0.85 * duration_factor),
             ))
@@ -719,7 +978,7 @@ def extract_evidence(skill_name: str, parsed_resume: dict) -> List[Evidence]:
         if tech_str and pattern.search(tech_str):
             evidence_list.append(Evidence(
                 evidence_type="technology_used",
-                description=f"Listed as technology at {company}",
+                description=f"Technology used at {company}",
                 source_text=f"Technologies: {tech_str}",
                 strength=min(0.85, 0.65 * duration_factor),
             ))
@@ -958,6 +1217,83 @@ _pipeline_cache = PipelineCache()
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Implied Skill Enforcement (post-LLM validation)
+# ═══════════════════════════════════════════════════════════════════════
+
+# Framework → foundation skill implications (canonical_name → [(implied_skill, min_depth)])
+_IMPLIED_SKILL_RULES = {
+    "react": [("html", 3), ("css", 3), ("javascript", 3), ("browser apis", 2)],
+    "next.js": [("html", 3), ("css", 3), ("javascript", 3), ("react", 3)],
+    "vue": [("html", 3), ("css", 3), ("javascript", 3), ("browser apis", 2)],
+    "angular": [("html", 3), ("css", 3), ("javascript", 3), ("browser apis", 2)],
+    "svelte": [("html", 3), ("css", 3), ("javascript", 3)],
+    "node.js": [("javascript", 3)],
+    "express": [("javascript", 3), ("node.js", 3)],
+    "nestjs": [("javascript", 3), ("typescript", 3), ("node.js", 3)],
+    "django": [("python", 3)],
+    "flask": [("python", 3)],
+    "fastapi": [("python", 3)],
+    "spring boot": [("java", 3)],
+    "rails": [("ruby", 3)],
+    "laravel": [("php", 3)],
+    ".net": [("c#", 3)],
+    "react native": [("react", 3), ("javascript", 3)],
+    "flutter": [("dart", 3)],
+    "kubernetes": [("docker", 2), ("linux", 2)],
+    "terraform": [("aws", 2)],  # At least one cloud platform
+    "pandas": [("python", 3)],
+    "pytorch": [("python", 3)],
+    "tensorflow": [("python", 3)],
+    "scikit-learn": [("python", 3)],
+}
+
+
+def _enforce_implied_skills(assessments: list):
+    """
+    Post-LLM validation: enforce that framework expertise implies
+    foundation skill proficiency. For example, React depth 4 must
+    mean HTML, CSS, and JS are at least depth 3.
+
+    Mutates assessments in place.
+    """
+    # Build lookup
+    skill_map = {}
+    for a in assessments:
+        skill_map[a.name.lower().strip()] = a
+
+    corrections = 0
+    for a in assessments:
+        if a.estimated_depth >= 3:
+            canonical = a.name.lower().strip()
+            rules = _IMPLIED_SKILL_RULES.get(canonical, [])
+            for implied_skill, min_depth in rules:
+                target = skill_map.get(implied_skill)
+                if target and target.estimated_depth < min_depth:
+                    old_depth = target.estimated_depth
+                    target.estimated_depth = min_depth
+                    target.depth_confidence = max(target.depth_confidence, 0.7)
+                    if old_depth == 0:
+                        target.depth_reasoning = (
+                            f"Implied by {a.name} at depth {a.estimated_depth}. "
+                            f"Professional {a.name} work requires {implied_skill} proficiency."
+                        )
+                    else:
+                        target.depth_reasoning = (
+                            f"{target.depth_reasoning} "
+                            f"(Boosted from {old_depth} to {min_depth}: "
+                            f"implied by {a.name} at depth {a.estimated_depth})"
+                        )
+                    corrections += 1
+                    logger.info(
+                        f"Implied skill enforcement: {implied_skill} "
+                        f"{old_depth} -> {min_depth} (from {a.name} depth {a.estimated_depth})"
+                    )
+
+    if corrections:
+        logger.info(f"Implied skill enforcement: {corrections} corrections applied")
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Pipeline
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -976,6 +1312,8 @@ class SkillPipeline:
         required_skills: list = None,
         preferred_skills: list = None,
         job_title: str = "",
+        role_type: str = "hybrid",
+        domain_profile: dict = None,
     ) -> tuple:
         """
         Run job-focused skill assessment. Always 1 LLM call, minimal output.
@@ -1026,8 +1364,21 @@ class SkillPipeline:
         # Pass job title for JD-specific reasoning, but NOT required depths
         # (depth requirements would anchor/bias the LLM's independent assessment)
         job_context = f"JOB TITLE: {job_title}\n" if job_title else ""
+
+        # Use cluster-specific prompt when available, fall back to monolithic prompt
+        try:
+            from app.services.cluster_prompts import build_assessment_prompt
+            system_prompt = build_assessment_prompt(
+                role_type=role_type,
+                job_title=job_title,
+                domain_profile=domain_profile,
+            )
+        except Exception as e:
+            logger.warning(f"Cluster prompt build failed, using fallback: {e}")
+            system_prompt = FAST_ASSESSMENT_PROMPT
+
         result = await llm_client.complete_json(
-            system_prompt=FAST_ASSESSMENT_PROMPT,
+            system_prompt=system_prompt,
             user_message=f"{job_context}Skills: {skill_list_text}\n\nResume:\n{resume_text}",
             max_tokens=2500,
         )
@@ -1057,7 +1408,8 @@ class SkillPipeline:
                 "language", "framework", "library", "database", "cloud",
                 "devops", "testing", "tool", "concept", "data", "mobile",
                 "ai", "general_tool", "methodology", "security", "enterprise",
-                "networking", "unknown",
+                "networking", "finance", "compliance", "operations", "hr",
+                "strategy", "domain_specific", "unknown",
             }
             if category not in valid_categories:
                 category = "unknown"
@@ -1072,6 +1424,11 @@ class SkillPipeline:
                 last_used_year=last_year,
             ))
         timings.result_parse_ms = (time.time() - t0) * 1000
+
+        # ── Stage 3b: Enforce implied skill rules post-LLM ───────────
+        # The LLM is instructed to follow these rules but sometimes doesn't.
+        # This ensures framework → foundation skill depth floors are enforced.
+        _enforce_implied_skills(assessments)
 
         # ── Stage 4: Deterministic evidence extraction ────────────────
         t0 = time.time()

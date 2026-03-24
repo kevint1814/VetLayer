@@ -1,0 +1,173 @@
+VETLAYER CODEBASE AUDIT - EXECUTIVE SUMMARY
+============================================
+
+PROJECT OVERVIEW
+- Architecture: Python/FastAPI backend + React/TypeScript frontend
+- Test Status: 79/79 tests passing (3 Pydantic deprecation warnings)
+- Code Quality: Production-ready, no syntax errors
+- Codebase Size: 83 total files (57 Python, 26 TypeScript/React)
+
+CRITICAL COMPONENTS
+1. skill_pipeline.py (63KB) - Core intelligence engine
+   - Single LLM call per analysis
+   - 450+ skill taxonomy with aliases
+   - Deterministic evidence extraction
+   - In-memory caching layer
+
+2. analysis.py (4370 lines) - Scoring pipeline
+   - Skill match scoring with weights
+   - Recency factor decay (stale skill penalty)
+   - Adjacency boosts (React → HTML/CSS/JS)
+   - Risk flag generation
+   - Interview question generation
+
+3. resume_parser.py (20KB) - Two-phase parsing
+   - Quick regex: 50ms (email, phone, location)
+   - Full LLM: 10-15s (experience, skills, education)
+   - Post-processing: years calculation, education inference
+
+BUGS IDENTIFIED (5 CRITICAL)
+================================
+
+HIGH SEVERITY (Fix ASAP)
+1. Partial Credit Calculation Bug (analysis.py:3479)
+   - Issue: Depth 2 of required 3 with weight 0.5 gives only 20% credit
+   - Impact: Undervalues almost-qualified candidates
+   - Fix: Use min(partial_ratio, 1.0) * weight * 0.75 instead
+
+2. Missing Implied Skill Validation (skill_pipeline.py)
+   - Issue: LLM instructed to enforce "React implies HTML/CSS/JS at depth 3+"
+   - Problem: No post-parse validation if LLM violates rules
+   - Impact: Inconsistent skill depths
+   - Fix: Add post-LLM validation to enforce minimum thresholds
+
+3. Recency Factor Cliff Effect (analysis.py)
+   - Issue: Sharp drop from 1.0 to 0.90 at 2-year boundary
+   - Impact: Artificial discontinuity in scoring
+   - Fix: Use smooth decay instead of brackets
+
+4. Insufficient Cache Key (skill_pipeline.py:1014)
+   - Issue: Cache misses if skill order changes or job_title slightly differs
+   - Impact: Redundant LLM calls, slower performance
+   - Fix: Normalize skill list and deduplicate in cache key
+
+5. Transferability Transitive Bug (analysis.py)
+   - Issue: System doesn't compute transitive transferability
+   - Impact: Vue developers may not get Angular credit even though both relate to React
+   - Fix: Implement transitive closure on skill adjacency graph
+
+MEDIUM SEVERITY
+6. Experience Range Not Validated
+   - Job has experience_range but scoring doesn't check against it
+7. Pydantic v2 Deprecation Warnings (3 files)
+   - Convert class Config to ConfigDict
+
+ARCHITECTURE HIGHLIGHTS
+========================
+✅ Multi-tenancy: company_id on all major models
+✅ Security: bcrypt passwords, JWT tokens, rate limiting
+✅ Async: FastAPI with async/await throughout
+✅ Middleware: CORS, security headers, rate limiting
+✅ Error Handling: Global exception handler, logging
+✅ Migrations: Alembic with 5 versions
+✅ ATS Integration: Greenhouse, Lever, Workday webhooks
+
+SKILL TAXONOMY (450+ skills, 18 domains)
+==========================================
+Covered: Web (HTML/CSS/JS/React/Vue), Backend (Python/Node/Java/Go), 
+Mobile (React Native/Flutter), Cloud (AWS/GCP/Azure), Data/ML/AI, 
+DevOps (Docker/Kubernetes), Testing, Databases, Enterprise (SAP/Salesforce)
+
+Gaps: HR/ATS tools, BI tools (missing Looker/Qlik), Legacy systems,
+API Management, Advanced observability (missing DataDog/New Relic), 
+Configuration management (missing Chef/Puppet)
+
+TEST COVERAGE
+=============
+79 tests total (100% pass rate):
+- test_security.py: Password hashing, JWT, strength validation
+- test_ats_integration.py: ATS parsers & webhook verification
+- test_date_utils.py: Date extraction & parsing
+- test_resume_postprocess.py: Education inference, years calculation
+- test_health.py: Endpoint health
+
+MISSING TESTS (Critical Gaps):
+- skill_pipeline.py: No tests for LLM integration, evidence extraction
+- analysis.py: No tests for scoring logic, recency, boosts
+- job_parser.py: No tests for seniority detection
+- PDF generation: No tests
+
+FILES NEEDING MODIFICATION FOR NEW FEATURES
+=============================================
+
+1. ROLE-TYPE DETECTION (Skill-Heavy vs Experience-Heavy)
+   Modify: job_parser.py (new function), analysis.py (_compute_scores), routes/analysis.py
+   Create: Column in Job model for detected_role_type
+
+2. ADAPTIVE SCORING WEIGHTS
+   Modify: analysis.py (_compute_scores) to adjust weights by role type
+   Impact: Different skill/experience weighting per role seniority
+
+3. EXPERIENCE TRAJECTORY SCORING
+   Create: services/experience_trajectory.py
+   Modify: models/candidate.py, routes/candidates.py, analysis.py
+   Add: Trajectory bonus to overall score
+
+4. SOFT SKILL PROXY DETECTION
+   Create: services/soft_skill_proxy.py
+   Modify: skill_pipeline.py (add to prompt), routes/analysis.py (_generate_risk_flags)
+   Extract: Leadership, communication, problem-solving evidence from resume
+
+5. DYNAMIC TAXONOMY GENERATION
+   Create: services/dynamic_taxonomy.py
+   Modify: models/skill.py (is_dynamic flag), routes/jobs.py
+   Auto-generate skill groups for unknown domains via LLM
+
+PERFORMANCE METRICS
+====================
+Target: <10 seconds per analysis
+Current: ~10-15 seconds (dominated by LLM call)
+
+Breakdown (typical):
+- Resume formatting: 5-10ms
+- LLM call: 8-12 seconds
+- Response parsing: 50-100ms
+- Evidence extraction: 100-200ms
+- Evidence post-processing: 50-100ms
+- Scoring & PDF: 500ms-1s
+Total: ~9-14 seconds
+
+Optimization opportunities:
+- In-memory cache (reduces to <100ms on hit)
+- Batch processing (10+ analyses in single request)
+- Async PDF generation (non-blocking)
+
+PRODUCTION READINESS CHECKLIST
+===============================
+✅ Authentication & authorization
+✅ Rate limiting
+✅ CORS security
+✅ Database migrations
+✅ Error logging
+✅ Multi-tenancy
+✅ ATS webhooks
+✅ Batch processing
+✅ PDF generation
+
+⚠️ Before production:
+  - Configure Redis for distributed cache (current: in-memory only)
+  - Set up structured logging (JSON format)
+  - Configure monitoring/alerting for LLM costs
+  - Load test with 100+ concurrent batch requests
+  - Database backup strategy
+
+RECOMMENDED NEXT STEPS (Priority Order)
+========================================
+1. Fix Bug #1 (partial credit calculation)
+2. Fix Bug #2 (implied skill validation)
+3. Add unit tests for skill_pipeline.py and _compute_scores
+4. Implement role-type detection feature
+5. Add persistent caching (Redis)
+6. Implement soft skill proxy detection
+
+Full detailed report: /sessions/upbeat-serene-ptolemy/mnt/vetlayer/CODEBASE_AUDIT_REPORT.md (963 lines)

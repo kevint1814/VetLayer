@@ -51,7 +51,13 @@ export interface IntelligenceProfile {
   skill_categories?: Record<string, string[]>;
   culture_signals?: string;
   ideal_roles?: string[];
+  ideal_roles_narrative?: string;
   talking_points?: string[];
+  career_timeline_briefs?: Array<{
+    company: string;
+    title: string;
+    brief: string;
+  }>;
 }
 
 export interface Candidate {
@@ -125,6 +131,18 @@ export interface SkillBreakdownItem {
   preferred?: boolean;
 }
 
+export interface ConfidenceInterval {
+  low: number;
+  high: number;
+}
+
+export interface UncertainSkill {
+  skill: string;
+  depth: number;
+  confidence: number;
+  flag: string;
+}
+
 export interface AnalysisResult {
   id: string;
   candidate_id: string;
@@ -147,6 +165,16 @@ export interface AnalysisResult {
   risk_flags: RiskFlag[];
   interview_questions: InterviewQuestion[];
   created_at: string;
+  // New: confidence and explainability fields
+  analysis_confidence?: number;
+  confidence_interval?: ConfidenceInterval;
+  uncertain_skills?: UncertainSkill[];
+  confidence_note?: string;
+  score_drivers?: string[];
+  // New: role type and domain context
+  role_type?: string;
+  role_type_confidence?: number;
+  domain_profile?: Record<string, number>;
 }
 
 export interface RiskFlag {
